@@ -8,7 +8,7 @@
 ### lambda計算の学習
 - [Towards a Neural Lambda Calculus: Neurosymbolic AI Applied to the Foundations of Functional Programming](https://arxiv.org/abs/2304.09276)
 - [Towards Neural Functional Program Evaluation](https://arxiv.org/abs/2112.04630)
-### Transformerによる階層的言語の処理
+### Transformerによる階層的言語の処理([日本語解説](https://joisino.hatenablog.com/entry/physics))
 - [Physics of Language Models: Part 1, Learning Hierarchical Language Structures](https://www.arxiv.org/abs/2305.13673v4) 動的計画法をしている
 - [Physics of Language Models: Part 2.2, How to Learn From Mistakes on Grade-School Math Problems](https://arxiv.org/abs/2408.16293)
 - [Physics of Language Models: Part 2.1, Grade-School Math and the Hidden Reasoning Process](https://arxiv.org/abs/2407.20311)
