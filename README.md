@@ -1,5 +1,25 @@
 # S式(Dick_k language)とその計算結果を学習するTransformer
 
+## ファイル構成と使い方
+# #学習と評価
+データ生成、S式評価、学習全機能が入ったもの
+> python3 train_allinone.py
+より一般化された条件用
+> python3 train.py
+
+## モデル
+- transformer_dick_fixed_embed.py  Dyck言語を入力とするTransformer
+- Recursive_Transformere.py RNN風Transformer
+- matrix_visualizer.py 行列可視化機能
+## S式、Dyck言語生成
+- generate_dick.py　Dyck言語生成(テスト用)
+- generate_sexp_with_variable.py　(自由変数のあるS式生成)
+- evallist.py S式の評価
+- sexp2dick.py S式からDyck言語への変換
+
+
+
+
 ## 先行研究
 ### Dyck_k decoderの構成
 - [Theoretical Limitations of Self-Attention in Neural Sequence Models](https://arxiv.org/abs/1906.06755)
