@@ -1,7 +1,6 @@
 import hy
 from sexpdata import Symbol, dumps, loads
 
-#S式、Dick言語のランダム生成で自由変数、束縛変数を使った式を追加できるでしょうか。また1行の中に複数の式を書いて自由変数を束縛するβ-簡約の処理をするようにできるでしょうか
 """
 自由/束縛変数つき S式のランダム生成 + β-簡約/Hy評価 + Dyck往復（Vector対応）
 

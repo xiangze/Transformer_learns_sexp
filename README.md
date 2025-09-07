@@ -1,24 +1,38 @@
 # S式(Dick_k language)とその計算結果を学習するTransformer
 
 ## ファイル構成と使い方
-# #学習と評価
-データ生成、S式評価、学習全機能が入ったもの
-> python3 train_allinone.py
-より一般化された条件用
-> python3 train.py
 
-## モデル
+### 学習と評価
+データ生成、S式評価、学習全機能が入ったもの
+```
+python3 train_allinone.py
+```
+より一般化された条件用
+```
+  PYTHONPATH=/path/to/Transformer_learns_sexp/src \
+  python pipeline_cv_train.py \
+      --n-sexps 2000 \
+      --n-free-vars 2 \
+      --kfold 5 \
+      --model fixed \
+      --epochs 5 \
+      --batch-size 64 \
+      --output-dir ./runs/sexp2000_k5_fixed \
+      --log-eval-steps \
+      --visualize
+```
+
+### モデル
 - transformer_dick_fixed_embed.py  Dyck言語を入力とするTransformer
 - Recursive_Transformere.py RNN風Transformer
 - matrix_visualizer.py 行列可視化機能
-## S式、Dyck言語生成
+### S式、Dyck言語生成
+- gen_sexp.py　S式生成(テスト用)
 - generate_dick.py　Dyck言語生成(テスト用)
 - generate_sexp_with_variable.py　(自由変数のあるS式生成)
 - evallist.py S式の評価
+- step_counter.py S式の評価ステップ数計測
 - sexp2dick.py S式からDyck言語への変換
-
-
-
 
 ## 先行研究
 ### Dyck_k decoderの構成
@@ -33,3 +47,9 @@
 - [Physics of Language Models: Part 2.2, How to Learn From Mistakes on Grade-School Math Problems](https://arxiv.org/abs/2408.16293)
 - [Physics of Language Models: Part 2.1, Grade-School Math and the Hidden Reasoning Process](https://arxiv.org/abs/2407.20311)
 - [Physics of Language Models: Part 3.3, Knowledge Capacity Scaling Laws](https://arxiv.org/abs/2404.05405)
+
+
+
+## S式、Dyck言語生成
+
+https://github.com/xiangze/Transformer_learns_sexp/tree/master/src　のgenerate_sexp_with_variable.pyでS式のリストのリストを生成し、それをSとしevallist.pyでSの各要素を評価しssに代入、sexp2dick.pyでS,ssの各要素をS式からDyck言語への変換してD,ddとしてそれらをデータ、ラベルの組としてcross validationでオプションで切り替えたtransformer_dick_fixed_embed.pyまたはRecursive_Transformere.py RNN風Transformerで学習、評価し、matrix_visualizer.pyを使って学習後のAttention Matrixを可視化するスクリプトを書いてください。S式の数、各S式自由変数の数、Transformerの種類はオプションで切り替えられるようにしてください。またオプションでevallist.pyでSの各要素を評価終了までに要したステップ数をログとして保存してください
