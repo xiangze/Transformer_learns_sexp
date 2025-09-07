@@ -3,10 +3,13 @@
 ## ファイル構成と使い方
 # #学習と評価
 データ生成、S式評価、学習全機能が入ったもの
-> python3 train_allinone.py
+```
+python3 train_allinone.py
+```
 より一般化された条件用
-> python3 train.py
-
+```
+python3 train.py
+```
 ## モデル
 - transformer_dick_fixed_embed.py  Dyck言語を入力とするTransformer
 - Recursive_Transformere.py RNN風Transformer
