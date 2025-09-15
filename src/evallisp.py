@@ -276,6 +276,9 @@ class Lisp:
         ast = parse(tokens)
         return transpile(ast)
     
+def execSexp(sexp:str):    
+    return exec(lisp.transpile())    
+
 if __name__ =="__main__":
     lisp = Lisp("""
     (

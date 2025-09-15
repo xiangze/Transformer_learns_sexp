@@ -3,7 +3,8 @@
 ## ファイル構成と使い方
 
 ### 学習と評価
-データ生成、S式評価、学習全機能が入ったもの
+S式データ生成、S式評価、学習全機能が入ったもの
+
 ```
 python3 train_allinone.py
 ```
@@ -33,6 +34,9 @@ python3 train_allinone.py
 - evallist.py S式の評価
 - step_counter.py S式の評価ステップ数計測
 - sexp2dick.py S式からDyck言語への変換
+### その他
+- train_eval.py 学習、評価の本体
+- util.py　
 
 ## 先行研究
 ### Dyck_k decoderの構成

@@ -14,131 +14,28 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 import util
 import generate_sexp_with_variable as gen_mod
-import evallisp as evl_mod
-import sexp2dick as s2d_mod
+import evallisp as eval_mod
+import sexp2dick as s2d
 import matrix_visualizer as vis
-
+import step_counter
+import torch
+from torch import DataLoader
+import torch.nn as nn
+import torch.optim as optim
+import util 
 # ------------------------------
 # Data pipeline components
 # ------------------------------
-
-def generate_S(n_sexps: int, n_free_vars: int, seed: int) -> List[List[str]]:
-    """
-    Call a generator in generate_sexp_with_variable.py
-    Expected return: List[List[str]] (a list of tokenized S-expressions per sample)
-    """
-    random.seed(seed)
-    gen_fn = util.smart_getattr(gen_mod, [
-        "generate_dataset",
-        "generate_sexp_list",
-        "generate_sexps",
-        "generate",
-        "main",
-    ])
-    if gen_fn is None:
-        util.fail_with_attributes(gen_mod, "S-expression generation")
-
-    # Try common signatures
-    for try_kwargs in (
-        dict(n_samples=n_sexps, n_free_vars=n_free_vars, seed=seed),
-        dict(n=n_sexps, n_free_vars=n_free_vars, seed=seed),
-        dict(count=n_sexps, free_vars=n_free_vars, seed=seed),
-        dict(n_sexps=n_sexps, n_free_vars=n_free_vars, seed=seed),
-        dict(n_samples=n_sexps, n_vars=n_free_vars, seed=seed),
-    ):
-        try:
-            S = gen_fn(**try_kwargs)
-            if S is not None:
-                return S
-        except TypeError:
-            pass
-
-    # Positional fallback
-    try:
-        S = gen_fn(n_sexps, n_free_vars, seed)
-        if S is not None:
-            return S
-    except TypeError:
-        pass
-
-    raise RuntimeError(
-        "Generator function found but could not be called with expected arguments."
-    )
-
 def eval_S(S: List[List[str]], log_steps: bool) -> Tuple[List[List[str]], Optional[List[int]]]:
-    """
-    Evaluate each S-expression to its result tokens (ss).
-    If steps-aware API exists, also return steps per sample.
-    """
-    eval_with_steps = smart_getattr(evl_mod, [
-        "eval_list_with_steps",
-        "evaluate_list_with_steps",
-        "eval_with_steps",
-    ])
-    if eval_with_steps is not None:
-        try:
-            ss, steps = eval_with_steps(S)
-            return ss, (steps if log_steps else None)
-        except Exception:
-            pass
-
-    eval_list = smart_getattr(evl_mod, [
-        "eval_list",
-        "evaluate_list",
-        "evalall",
-        "evaluate",
-        "main",
-    ])
-    if eval_list is None:
-        fail_with_attributes(evl_mod, "S-expression evaluation")
-
-    ss = eval_list(S)
-    return ss, None
-
-def sexp_to_dyck(S: List[List[str]], ss: List[List[str]]) -> Tuple[List[List[str]], List[List[str]]]:
-    """
-    Convert S and evaluated ss into Dyck sequences D (inputs) and dd (labels).
-    """
-    batch_conv = smart_getattr(s2d_mod, [
-        "sexp_list_to_dyck",
-        "convert_list",
-        "to_dyck_list",
-        "convert_batch",
-    ])
-    if batch_conv is not None:
-        try:
-            out = batch_conv(S, ss)
-            if isinstance(out, tuple) and len(out) == 2:
-                return out[0], out[1]
-            if isinstance(out, dict) and "D" in out and "dd" in out:
-                return out["D"], out["dd"]
-        except Exception:
-            pass
-
-    one_conv = smart_getattr(s2d_mod, [
-        "sexp_to_dyck",
-        "convert",
-        "to_dyck",
-    ])
-    if one_conv is None:
-        fail_with_attributes(s2d_mod, "S→Dyck conversion")
-
-    D, dd = [], []
-    for s, y in zip(S, ss):
-        out = one_conv(s, y)
-        if isinstance(out, tuple) and len(out) == 2:
-            D.append(out[0]); dd.append(out[1])
-        elif isinstance(out, dict) and "D" in out and "dd" in out:
-            D.append(out["D"]); dd.append(out["dd"])
-        else:
-            raise RuntimeError("Single-item converter must return (D, dd) or {'D','dd'}.")
-    return D, dd
+    if(log_steps):
+        return step_counter.eval_with_steps(S) #eval_mod.execSexp(S)
+    else:
+        return eval_mod.execSexp(S),None
 
 
 # ------------------------------
 # Dataset helpers
 # ------------------------------
-
 def to_str_seq(tokens: List[str]) -> str:
     return " ".join(map(str, tokens))
 
@@ -165,7 +62,6 @@ def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
         for x, y in pairs:
             f.write(json.dumps({"input": x, "label": y}, ensure_ascii=False) + "\n")
 
-
 # ------------------------------
 # Training & visualization
 # ------------------------------
@@ -178,45 +74,87 @@ def train_one_fold(model_kind: str,
                    epochs: int,
                    batch_size: int,
                    seed: int) -> Optional[Any]:
-    """
-    Import the selected model module and call its train function.
-    Expected callable names: train, fit, or main (CLI-like).
-    When only main exists, pass jsonl paths via env vars.
-    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Device: {device}")
+    pin = (device == "cuda")
+    
     if model_kind == "fixed":
-        model_mod_name = "transformer_dick_fixed_embed"
+        model=fixed.TransformerRegressor()
     elif model_kind == "recursive":
-        model_mod_name = "Recursive_Transformere"
+        model=recursive.SharedTransformerRegressor()
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
+    
+    print("[4/5] token to Tensor...")
+    ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
+    ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
 
-    model_mod = __import__(model_mod_name)
+    num_workers=1
+    train_loader = DataLoader(ds_train[:], batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
+    val_loader   = DataLoader(ds_val[:], batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
 
-    train_fn = smart_getattr(model_mod, ["train", "fit"])
-    if train_fn is not None:
-        return train_fn(train_pairs=train_pairs,
-                        val_pairs=val_pairs,
-                        out_dir=str(out_dir),
-                        epochs=epochs,
-                        batch_size=batch_size,
-                        seed=seed)
-
-    main_fn = smart_getattr(model_mod, ["main"])
-    if main_fn is None:
-        fail_with_attributes(model_mod, "model training entrypoint (train/fit/main)")
-
+    criterion=nn.MSEloss() #soft
+    opt=optim.Adam(model.parameters(), lr=0.05)
+    scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
+    best_val_acc,last_val_acc=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=True,scaler=scaler,eval=True)
+    
     # Serialize jsonl files and pass paths through environment variables.
-    tmp_train = out_dir / "train.jsonl"
-    tmp_val = out_dir / "val.jsonl"
+    tmp_train = out_dir+ "/train.jsonl"
+    tmp_val = out_dir+  "/val.jsonl"
     save_pairs_jsonl(train_pairs, tmp_train)
     save_pairs_jsonl(val_pairs, tmp_val)
+    return best_val_acc,last_val_acc
 
-    return main_fn()
+def pipline(args,out_root="result"):
+    print("[1/5] Generating S-expressions...")
+    t0 = time.time()
+    S= gen_mod.make_dataset(args.n_sexps,args.max_depth,args.n_free_vars)
+
+    print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
+
+    print("[2/5] Evaluating S-expressions...")
+    t0 = time.time()
+    ss, steps = eval_S(S, args.log_eval_steps)
+
+    print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
+
+    if args.log_eval_steps and steps is not None:
+        step_log_path = out_root + "/eval_steps.csv"
+        with step_log_path.open("w", encoding="utf-8") as f:
+            f.write("index,steps\n")
+            for i, st in enumerate(steps):
+                f.write(f"{i},{st}\n")
+        print(f"  step counts saved to: {step_log_path}")
+
+    print("[3/5] Converting to Dyck language...")
+    t0 = time.time()
+    Dyks, dlabels = s2d.exp_str_to_dyck_and_labels(S) 
+    pairs = make_pairs(Dyks, dlabels)
+    print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
+
+    print("[4/5] K-fold training/evaluation...")
+    folds = kfold_split(len(pairs), args.kfold, args.seed)
+    for k, (tr_idx, va_idx) in enumerate(folds):
+        fold_dir = f"{out_root}/fold_{k+1:02d}"
+        fold_dir.mkdir(parents=True, exist_ok=True)
+        train_pairs = [pairs[i] for i in tr_idx]
+        val_pairs   = [pairs[i] for i in va_idx]
+
+        save_pairs_jsonl(train_pairs, fold_dir + "/train.jsonl")
+        save_pairs_jsonl(val_pairs, fold_dir + "/val.jsonl")
+
+        print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
+        _ = train_one_fold(args.model, train_pairs, val_pairs, fold_dir,
+                        epochs=args.epochs, batch_size=args.batch_size, seed=args.seed)
+
+        if args.visualize:
+            print(f"  [fold {k+1}] visualizing attention (if supported)...")
+            vis.print_and_dump_attention_params(args.model,)
+        print("[5/5] Done.")
 
 # ------------------------------
 # Main
 # ------------------------------
-
 def main():
     parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでTransformer学習・可視化まで一括実行")
     parser.add_argument("--n-sexps", type=int, default=5000, help="生成するS式サンプル数")
@@ -238,16 +176,18 @@ def main():
 
     print("[1/5] Generating S-expressions...")
     t0 = time.time()
-    S = generate_S(args.n_sexps, args.n_free_vars, args.seed)
+    S= gen_mod.make_dataset(args.n_sexps,args.max_depth,args.n_free_vars)
+
     print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
 
     print("[2/5] Evaluating S-expressions...")
     t0 = time.time()
     ss, steps = eval_S(S, args.log_eval_steps)
+
     print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
 
     if args.log_eval_steps and steps is not None:
-        step_log_path = out_root / "eval_steps.csv"
+        step_log_path = out_root + "/eval_steps.csv"
         with step_log_path.open("w", encoding="utf-8") as f:
             f.write("index,steps\n")
             for i, st in enumerate(steps):
@@ -256,8 +196,8 @@ def main():
 
     print("[3/5] Converting to Dyck language...")
     t0 = time.time()
-    D, dd = sexp_to_dyck(S, ss)
-    pairs = make_pairs(D, dd)
+    D, dlabels = s2d.exp_str_to_dyck_and_labels(S) #dyck,labels
+    pairs = make_pairs(D, dlabels)
     print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
 
     print("[4/5] K-fold training/evaluation...")
@@ -268,8 +208,8 @@ def main():
         train_pairs = [pairs[i] for i in tr_idx]
         val_pairs   = [pairs[i] for i in va_idx]
 
-        save_pairs_jsonl(train_pairs, fold_dir / "train.jsonl")
-        save_pairs_jsonl(val_pairs, fold_dir / "val.jsonl")
+        save_pairs_jsonl(train_pairs, fold_dir + "/train.jsonl")
+        save_pairs_jsonl(val_pairs, fold_dir + "/val.jsonl")
 
         print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
         _ = train_one_fold(args.model, train_pairs, val_pairs, fold_dir,
@@ -278,8 +218,7 @@ def main():
         if args.visualize:
             print(f"  [fold {k+1}] visualizing attention (if supported)...")
             vis.print_and_dump_attention_params(args.model,)
-            visualize_attention_if_possible(fold_dir)
-
         print("[5/5] Done.")
 
-
+if __name__=="__main__":
+    main()
