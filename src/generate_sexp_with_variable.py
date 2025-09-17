@@ -1,5 +1,9 @@
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Any, List, Tuple, Optional, Iterable, Set
+import random, math, ast, re, argparse
 import hy
-from sexpdata import Symbol, dumps, loads
+from sexpdata import Symbol,  dumps, loads
 
 """
 自由/束縛変数つき S式のランダム生成 + β-簡約/Hy評価 + Dyck往復（Vector対応）
@@ -11,16 +15,9 @@ from sexpdata import Symbol, dumps, loads
 
 - Dyck＋labels は LIST に加えて VEC（[...]）もサポート。
 """
-from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, List, Tuple, Optional, Iterable, Set
-import random, math, ast, re, argparse
-
-import hy
-from sexpdata import Symbol, Vector, dumps, loads
 
 SYM = Symbol
-VEC = Vector
+#VEC = Vector
 
 PRIMS = {
     "+", "-", "*", "/", "pow", "abs", "round", "max", "min",
@@ -106,7 +103,7 @@ def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
         used = set(bound)
         p = fresh_var(used)
         body = gen_numeric_expr(depth-1, bound | {p})
-        lam = [SYM("fn"), VEC([SYM(p)]), body]
+        lam = [SYM("fn"), [SYM(p)], body]
         arg = gen_numeric_expr(depth-1, bound)
         return [lam, arg]
     else:
@@ -114,7 +111,7 @@ def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
         v = fresh_var(set(bound))
         e = gen_numeric_expr(depth-1, bound)
         body = gen_numeric_expr(depth-1, bound | {v})
-        return [SYM("let"), VEC([SYM(v), e]), body]
+        return [SYM("let"), [SYM(v), e], body]
 
 def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     """
@@ -131,7 +128,7 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
             # λ抽象
             p = fresh_var(bound | {v})
             body = gen_numeric_expr(max_depth-1, bound | {p})
-            e = [SYM("fn"), VEC([SYM(p)]), body]
+            e = [SYM("fn"), [SYM(p)], body]
         else:
             e = gen_numeric_expr(max_depth-1, bound)
         forms.append([SYM("setv"), SYM(v), e])
@@ -139,6 +136,9 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
 
     final = gen_numeric_expr(max_depth, bound)
     return [SYM("do"), *forms, final]
+
+def gen_program_with_setv_s(max_bind: int = 2, max_depth: int = 4)->str:
+    return dumps(gen_program_with_setv(max_bind, max_depth))    
 
 # -----------------------------
 # 1) Hy で逐次評価
@@ -155,13 +155,13 @@ def hy_eval_program_str(program_str: str) -> Any:
 #    - 左最外優先 β-簡約 + プリミティブ数値演算
 # -----------------------------
 def is_list(x): return isinstance(x, list)
-def is_vec(x):  return isinstance(x, Vector)
+#def is_vec(x):  return isinstance(x, Vector)
 
-def vec_to_list(v: Vector) -> List[Any]:
-    return list(v)
+#def vec_to_list(v: Vector) -> List[Any]:
+#    return list(v)
 
-def list_to_vec(items: Iterable[Any]) -> Vector:
-    return VEC(list(items))
+#def list_to_vec(items: Iterable[Any]) -> Vector:
+#    return VEC(list(items))
 
 def free_vars(expr: Any, bound: Set[str] = None) -> Set[str]:
     if bound is None: bound = set()
@@ -170,19 +170,21 @@ def free_vars(expr: Any, bound: Set[str] = None) -> Set[str]:
         return set() if (s in PRIMS) else ({s} - bound)
     elif is_number_atom(expr) or isinstance(expr, bool) or expr is None:
         return set()
-    elif is_vec(expr):
-        out = set()
-        for x in expr:
-            out |= free_vars(x, bound)
-        return out
+#    elif is_vec(expr):
+#        out = set()
+#        for x in expr:
+#            out |= free_vars(x, bound)
+#        return out
     elif is_list(expr):
         if expr and isinstance(expr[0], Symbol) and str(expr[0]) == "fn":
             # (fn [x ...] body)
-            params = [str(s) for s in vec_to_list(expr[1])]
+#            params = [str(s) for s in vec_to_list(expr[1])]
+            params = [str(s) for s in expr[1]]
             return free_vars(expr[2], bound | set(params))
         elif expr and isinstance(expr[0], Symbol) and str(expr[0]) == "let":
             # (let [x a y b] body)
-            items = vec_to_list(expr[1])
+            #items = vec_to_list(expr[1])
+            items = expr[1]
             bs = {}
             for i in range(0, len(items), 2):
                 bs[str(items[i])] = items[i+1]
@@ -204,11 +206,12 @@ def free_vars(expr: Any, bound: Set[str] = None) -> Set[str]:
 def alpha_rename(body: Any, old: str, new: str) -> Any:
     if isinstance(body, Symbol):
         return SYM(new) if str(body) == old else body
-    elif is_vec(body):
-        return list_to_vec(alpha_rename(x, old, new) for x in body)
+#    elif is_vec(body):
+#        return list_to_vec(alpha_rename(x, old, new) for x in body)
     elif is_list(body):
         if body and is_symbol(body[0], "fn"):
-            params = [str(s) for s in vec_to_list(body[1])]
+            #params = [str(s) for s in vec_to_list(body[1])]
+            params = [str(s) for s in body[1]]
             if old in params:
                 return body  # シャドウされていたら何もしない
             return [body[0], body[1], alpha_rename(body[2], old, new)]
@@ -221,11 +224,12 @@ def substitute(expr: Any, var: str, val: Any) -> Any:
     """捕獲回避付き置換 [var := val]expr"""
     if isinstance(expr, Symbol):
         return val if str(expr) == var else expr
-    elif is_vec(expr):
-        return list_to_vec(substitute(x, var, val) for x in expr)
+#    elif is_vec(expr):
+#        return list_to_vec(substitute(x, var, val) for x in expr)
     elif is_list(expr):
         if expr and is_symbol(expr[0], "fn"):
-            params = [str(s) for s in vec_to_list(expr[1])]
+            #params = [str(s) for s in vec_to_list(expr[1])]
+            params = [str(s) for s in expr[1]]
             if var in params:
                 return expr  # 束縛され直すので中へ入らない
             # 捕獲回避：val の自由変数とぶつかる引数名はリネーム
@@ -240,7 +244,8 @@ def substitute(expr: Any, var: str, val: Any) -> Any:
                     new_params.append(p2); changed = True
                 else:
                     new_params.append(p)
-            new_fn = [expr[0], VEC([SYM(p) for p in new_params]), body]
+            #new_fn = [expr[0], VEC([SYM(p) for p in new_params]), body]
+            new_fn = [expr[0], [SYM(p) for p in new_params], body]
             return [new_fn[0], new_fn[1], substitute(body, var, val)] if changed \
                    else [expr[0], expr[1], substitute(body, var, val)]
         else:
@@ -260,18 +265,19 @@ def desugar_do_setv_to_let(prog: Any) -> Any:
         else:
             # 非 setv を含む場合はそのまま do として残す（β評価では無視されうる）
             return prog
-    return [SYM("let"), VEC(pairs), last]
+    return [SYM("let"), pairs, last]
 
 def let_to_app(expr: Any) -> Any:
     """(let [x a y b ...] body) → ((fn [x y ...] body) a b ...)"""
     if not (is_list(expr) and expr and is_symbol(expr[0], "let")):
         return expr
-    items = vec_to_list(expr[1])
+#    items = vec_to_list(expr[1])
+    items = expr[1]
     params, args = [], []
     for i in range(0, len(items), 2):
         params.append(items[i])
         args.append(items[i+1])
-    lam = [SYM("fn"), VEC(params), expr[2]]
+    lam = [SYM("fn"), params, expr[2]]
     return [lam, *args]
 
 def prim_eval(expr: Any) -> Any:
@@ -343,7 +349,8 @@ def beta_step(expr: Any) -> Tuple[Any, bool]:
         head = expr[0]
         if is_list(head) and head and is_symbol(head[0], "fn"):
             # 複数引数なら左から1つずつ
-            params = [str(s) for s in vec_to_list(head[1])]
+            #params = [str(s) for s in vec_to_list(head[1])]
+            params = [str(s) for s in head[1]]
             body = head[2]
             if not expr[1:]:
                 return expr, False
@@ -353,7 +360,7 @@ def beta_step(expr: Any) -> Tuple[Any, bool]:
             rest_params = params[1:]
             new_body = substitute(body, x, expr[1])
             if rest_params:
-                new_fn = [SYM("fn"), VEC([SYM(p) for p in rest_params]), new_body]
+                new_fn = [SYM("fn"), [SYM(p) for p in rest_params], new_body]
                 return [new_fn, *expr[2:]], True
             else:
                 # 1引数λなら body へ置換して引数を1つ削る
@@ -397,9 +404,9 @@ def sexp_to_dyck_and_labels(sexp: Any) -> Tuple[str, List[str]]:
         if is_list(x):
             labels.append("LIST")
             for c in x: visit(c)
-        elif is_vec(x):
-            labels.append("VEC")
-            for c in x: visit(c)
+        #elif is_vec(x):
+        #    labels.append("VEC")
+        #    for c in x: visit(c)
         elif isinstance(x, Symbol):
             labels.append(f"SYM:{str(x)}")
         elif isinstance(x, bool):
@@ -434,8 +441,8 @@ def dyck_and_labels_to_sexp(dyck: str, labels: List[str]) -> Any:
         lab = next(it)
         if lab == "LIST":
             return [build(c) for c in n]
-        if lab == "VEC":
-            return VEC([build(c) for c in n])
+        #if lab == "VEC":
+        #    return VEC([build(c) for c in n])
         if lab.startswith("SYM:"):
             if n: raise ValueError("SYM must be leaf")
             return SYM(lab[4:])
@@ -466,16 +473,17 @@ class ProgSample:
     value_hy: Optional[Any]
     value_beta: Optional[Any]
 
-def make_dataset(n: int, *, max_depth=4, max_bind=2, retries=20) -> List[ProgSample]:
+def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSample]:
     out: List[ProgSample] = []
     while len(out) < n:
-        prog = gen_program_with_setv(max_bind=max_bind, max_depth=max_depth)
-        s = dumps(prog)
-        v_hy = None; v_be = None
+        s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
+        v_hy = None
+        v_be = None
         ok = False
         for _ in range(retries):
             try:
                 v_hy = hy_eval_program_str(s)
+                #terminate
                 if isinstance(v_hy, (int,float,bool)) and (not (isinstance(v_hy,float) and not math.isfinite(v_hy))):
                     ok = True
                 else:
@@ -492,18 +500,45 @@ def make_dataset(n: int, *, max_depth=4, max_bind=2, retries=20) -> List[ProgSam
                 break
     return out
 
+def isterminal(v_hy):
+    return isinstance(v_hy, (int,float,bool)) and (not (isinstance(v_hy,float) and not math.isfinite(v_hy)))
+
+def test(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSample]:
+    out: List[ProgSample] = []
+    for i in range(n):#while len(out) < n:
+        s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
+        v_hy = None
+        v_be = None
+        ok = False
+        print(s)
+        for _ in range(retries):
+            try:
+                v_hy = hy_eval_program_str(s)
+                print(v_hy)
+                ok=isterminal(v_hy)
+            except Exception:
+                ok = False
+            # β-簡約（let などの糖衣脱ぎは beta_step 内で行われる）
+            try:
+                v_be = beta_eval_program_str(s)
+            except Exception:
+                v_be = None
+            if ok:
+                out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
+                break
+    return out
+
 # -----------------------------
 # 5) デモ / CLI
 # -----------------------------
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=10)
-    ap.add_argument("--max-depth", type=int, default=4)
-    ap.add_argument("--max-bind", type=int, default=2)
-    args = ap.parse_args()
-
+def main(args):
+    import time
     random.seed(0)
+    print("Generating S-expressions...")
+    t0 = time.time()
     ds = make_dataset(args.n, max_depth=args.max_depth, max_bind=args.max_bind)
+    print(f"  generated: {len(ds)} samples in {time.time()-t0:.2f}s")
+
     for i, smp in enumerate(ds, 1):
         print(f"{i:02d}. {smp.sexp}  =>  HY:{smp.value_hy}  |  BETA:{smp.value_beta}")
         # Dyck 表示
@@ -515,4 +550,10 @@ def main():
         print("-"*80)
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--n", type=int, default=10)
+    ap.add_argument("--max_depth", type=int, default=4)
+    ap.add_argument("--max_bind", type=int, default=2)
+    args = ap.parse_args()
+#    main(args)
+    test(args.n,args.max_depth,args.max_bind)
