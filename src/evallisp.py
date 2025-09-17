@@ -277,6 +277,7 @@ class Lisp:
         return transpile(ast)
     
 def execSexp(sexp:str):    
+    lisp=Lisp(sexp)
     return exec(lisp.transpile())    
 
 if __name__ =="__main__":
