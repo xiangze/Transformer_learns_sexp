@@ -17,7 +17,6 @@ from sexpdata import Symbol,  dumps, loads
 """
 
 SYM = Symbol
-#VEC = Vector
 
 PRIMS = {
     "+", "-", "*", "/", "pow", "abs", "round", "max", "min",
@@ -145,7 +144,7 @@ def gen_program_with_setv_s(max_bind: int = 2, max_depth: int = 4)->str:
 # -----------------------------
 def hy_eval_program_str(program_str: str) -> Any:
     # Hy は 1式モデルが基本なので (do ...) に包んでおくと評価が容易
-    model = hy.read_str(program_str)    # 1式
+    model = hy.read(program_str)    # 1式
     return hy.eval(model)
 
 # -----------------------------
@@ -155,13 +154,8 @@ def hy_eval_program_str(program_str: str) -> Any:
 #    - 左最外優先 β-簡約 + プリミティブ数値演算
 # -----------------------------
 def is_list(x): return isinstance(x, list)
-#def is_vec(x):  return isinstance(x, Vector)
-
-#def vec_to_list(v: Vector) -> List[Any]:
-#    return list(v)
-
-#def list_to_vec(items: Iterable[Any]) -> Vector:
-#    return VEC(list(items))
+def to_str(l:list): return [str(l) for l in list]
+# params = [str(s) for s in vec_to_list(expr[1])]
 
 def free_vars(expr: Any, bound: Set[str] = None) -> Set[str]:
     if bound is None: bound = set()
@@ -170,16 +164,10 @@ def free_vars(expr: Any, bound: Set[str] = None) -> Set[str]:
         return set() if (s in PRIMS) else ({s} - bound)
     elif is_number_atom(expr) or isinstance(expr, bool) or expr is None:
         return set()
-#    elif is_vec(expr):
-#        out = set()
-#        for x in expr:
-#            out |= free_vars(x, bound)
-#        return out
     elif is_list(expr):
-        if expr and isinstance(expr[0], Symbol) and str(expr[0]) == "fn":
+        if expr and isinstance(expr[0], Symbol) and str(expr[0]) == "defn": #fn
             # (fn [x ...] body)
-#            params = [str(s) for s in vec_to_list(expr[1])]
-            params = [str(s) for s in expr[1]]
+            params = to_str(expr[1])
             return free_vars(expr[2], bound | set(params))
         elif expr and isinstance(expr[0], Symbol) and str(expr[0]) == "let":
             # (let [x a y b] body)
@@ -206,11 +194,8 @@ def free_vars(expr: Any, bound: Set[str] = None) -> Set[str]:
 def alpha_rename(body: Any, old: str, new: str) -> Any:
     if isinstance(body, Symbol):
         return SYM(new) if str(body) == old else body
-#    elif is_vec(body):
-#        return list_to_vec(alpha_rename(x, old, new) for x in body)
     elif is_list(body):
         if body and is_symbol(body[0], "fn"):
-            #params = [str(s) for s in vec_to_list(body[1])]
             params = [str(s) for s in body[1]]
             if old in params:
                 return body  # シャドウされていたら何もしない
@@ -389,11 +374,7 @@ def evaluate(expr: Any, max_steps: int = 10_000) -> Any:
             break
     return cur
 
-def beta_eval_program_str(program_str: str) -> Any:
-    expr = loads(program_str)
-    val = evaluate(expr)
-    return val
-
+beta_eval_program_str =lambda  program_str:  evaluate(loads(program_str))
 # -----------------------------
 # 3) Dyck（括弧列）＋ラベル列（LIST/VEC 対応）
 # -----------------------------
@@ -404,9 +385,6 @@ def sexp_to_dyck_and_labels(sexp: Any) -> Tuple[str, List[str]]:
         if is_list(x):
             labels.append("LIST")
             for c in x: visit(c)
-        #elif is_vec(x):
-        #    labels.append("VEC")
-        #    for c in x: visit(c)
         elif isinstance(x, Symbol):
             labels.append(f"SYM:{str(x)}")
         elif isinstance(x, bool):
@@ -441,8 +419,6 @@ def dyck_and_labels_to_sexp(dyck: str, labels: List[str]) -> Any:
         lab = next(it)
         if lab == "LIST":
             return [build(c) for c in n]
-        #if lab == "VEC":
-        #    return VEC([build(c) for c in n])
         if lab.startswith("SYM:"):
             if n: raise ValueError("SYM must be leaf")
             return SYM(lab[4:])
@@ -473,59 +449,38 @@ class ProgSample:
     value_hy: Optional[Any]
     value_beta: Optional[Any]
 
+isterminal=lambda v_hy:isinstance(v_hy, (int,float,bool)) and (not (isinstance(v_hy,float) and not math.isfinite(v_hy)))
+
+def isOK(f):
+    try:
+        return f(),True
+    except Exception:
+        return None,False
+
 def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSample]:
     out: List[ProgSample] = []
     while len(out) < n:
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
-        v_hy = None
-        v_be = None
-        ok = False
         for _ in range(retries):
-            try:
-                v_hy = hy_eval_program_str(s)
-                #terminate
-                if isinstance(v_hy, (int,float,bool)) and (not (isinstance(v_hy,float) and not math.isfinite(v_hy))):
-                    ok = True
-                else:
-                    ok = False
-            except Exception:
-                ok = False
+            v_hy,ok=isOK(lambda :hy_eval_program_str(s))
+                # ok=isterminal(v_hy) #式のままでいい
             # β-簡約（let などの糖衣脱ぎは beta_step 内で行われる）
-            try:
-                v_be = beta_eval_program_str(s)
-            except Exception:
-                v_be = None
+            v_be,_=isOK(lambda :beta_eval_program_str(s))
             if ok:
                 out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
                 break
     return out
 
-def isterminal(v_hy):
-    return isinstance(v_hy, (int,float,bool)) and (not (isinstance(v_hy,float) and not math.isfinite(v_hy)))
-
 def test(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSample]:
     out: List[ProgSample] = []
-    for i in range(n):#while len(out) < n:
+    for i in range(n):
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
-        v_hy = None
-        v_be = None
-        ok = False
         print(s)
-        for _ in range(retries):
-            try:
-                v_hy = hy_eval_program_str(s)
-                print(v_hy)
-                ok=isterminal(v_hy)
-            except Exception:
-                ok = False
-            # β-簡約（let などの糖衣脱ぎは beta_step 内で行われる）
-            try:
-                v_be = beta_eval_program_str(s)
-            except Exception:
-                v_be = None
-            if ok:
-                out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
-                break
+        v_hy = hy_eval_program_str(s)
+        print(v_hy)
+        print("isterminal",isterminal(v_hy))
+        v_be = beta_eval_program_str(s)
+        out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
     return out
 
 # -----------------------------
@@ -554,6 +509,11 @@ if __name__ == "__main__":
     ap.add_argument("--n", type=int, default=10)
     ap.add_argument("--max_depth", type=int, default=4)
     ap.add_argument("--max_bind", type=int, default=2)
+    ap.add_argument("--test", type=bool, default=False)
     args = ap.parse_args()
-#    main(args)
-    test(args.n,args.max_depth,args.max_bind)
+
+    if(args.test):
+        test(args.n,args.max_depth,args.max_bind)
+    else:
+        main(args)        
+
