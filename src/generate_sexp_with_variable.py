@@ -24,14 +24,11 @@ PRIMS = {
 }
 VAR_POOL = ["x","y","z","u","v","a","b","c","t"]
 
-def is_number_atom(x: Any) -> bool:
-    return isinstance(x, (int, float))
+MOD=7
 
-def is_symbol(x: Any, name: str) -> bool:
-    return isinstance(x, Symbol) and str(x) == name
-
-def sexp_list(*xs: Any) -> list:
-    return list(xs)
+def is_number_atom(x: Any) -> bool: return isinstance(x, (int, float))
+def is_symbol(x: Any, name: str) -> bool: return isinstance(x, Symbol) and str(x) == name
+def sexp_list(*xs: Any) -> list: return list(xs)
 
 # -----------------------------
 # 0) 乱数式（自由/束縛あり）
@@ -229,7 +226,6 @@ def substitute(expr: Any, var: str, val: Any) -> Any:
                     new_params.append(p2); changed = True
                 else:
                     new_params.append(p)
-            #new_fn = [expr[0], VEC([SYM(p) for p in new_params]), body]
             new_fn = [expr[0], [SYM(p) for p in new_params], body]
             return [new_fn[0], new_fn[1], substitute(body, var, val)] if changed \
                    else [expr[0], expr[1], substitute(body, var, val)]
@@ -265,6 +261,40 @@ def let_to_app(expr: Any) -> Any:
     lam = [SYM("fn"), params, expr[2]]
     return [lam, *args]
 
+# 算術 / pow ,有限体上
+def prim_eval_arith(op:str,expr: Any,numify:Any,mod:int=0)-> Any:
+    args = [evaluate(x) for x in expr[1:]]
+    if not all(is_number_atom(x) for x in args): return expr
+    vals = [numify(x) for x in args]
+    if(mod!=0):
+        if op == "+": return sum(vals)
+        if op == "-":
+            return vals[0] if len(vals)==1 else vals[0] - sum(vals[1:])
+        if op == "*":
+            out = 1.0
+            for v in vals: out *= v
+            return out
+        if op == "/":
+            out = vals[0]
+            for v in vals[1:]: out /= v
+            return out
+        if op == "pow":
+            return vals[0] ** vals[1]
+    else:
+        if op == "+": return (sum(vals))%mod
+        if op == "-":
+            return vals[0]%mod if len(vals)==1 else (vals[0] - sum(vals[1:]))%mod
+        if op == "*":
+            out = 1.0
+            for v in vals: out *= v
+            return out%mod
+        if op == "/":
+            out = vals[0]
+            for v in vals[1:]: out /= v
+            return out%mod
+        if op == "pow":
+            return (vals[0] ** vals[1])%mod
+            
 def prim_eval(expr: Any) -> Any:
     """引数が全て数値等になったプリミティブを評価"""
     if not (is_list(expr) and expr and isinstance(expr[0], Symbol)):
@@ -289,22 +319,7 @@ def prim_eval(expr: Any) -> Any:
 
     # 算術 / pow
     if op in {"+","-","*","/","pow"}:
-        args = [evaluate(x) for x in expr[1:]]
-        if not all(is_number_atom(x) for x in args): return expr
-        vals = [numify(x) for x in args]
-        if op == "+": return sum(vals)
-        if op == "-":
-            return vals[0] if len(vals)==1 else vals[0] - sum(vals[1:])
-        if op == "*":
-            out = 1.0
-            for v in vals: out *= v
-            return out
-        if op == "/":
-            out = vals[0]
-            for v in vals[1:]: out /= v
-            return out
-        if op == "pow":
-            return vals[0] ** vals[1]
+        return prim_eval_arith(op,expr,numify,MOD)
 
     # 単項/可変長
     if op in {"abs","round"} and len(expr) == 2:
@@ -471,7 +486,7 @@ def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSampl
                 break
     return out
 
-def test(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSample]:
+def test(n: int, max_depth=4, max_bind=2) -> List[ProgSample]:
     out: List[ProgSample] = []
     for i in range(n):
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
