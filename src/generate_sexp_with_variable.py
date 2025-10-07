@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, List, Tuple, Optional, Iterable, Set
 import random, math, ast, re, argparse
 import hy
+import re
 from sexpdata import Symbol,  dumps, loads
 
 """
@@ -25,6 +26,7 @@ PRIMS = {
 VAR_POOL = ["x","y","z","u","v","a","b","c","t"]
 
 MOD=7
+USE_LET=False
 
 def is_number_atom(x: Any) -> bool: return isinstance(x, (int, float))
 def is_symbol(x: Any, name: str) -> bool: return isinstance(x, Symbol) and str(x) == name
@@ -102,13 +104,15 @@ def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
         lam = [SYM("fn"), [SYM(p)], body]
         arg = gen_numeric_expr(depth-1, bound)
         return [lam, arg]
-    else:
+    elif(USE_LET):
         # let 束縛 (let [v e] body)
         v = fresh_var(set(bound))
         e = gen_numeric_expr(depth-1, bound)
         body = gen_numeric_expr(depth-1, bound | {v})
         return [SYM("let"), [SYM(v), e], body]
-
+    else:
+        pass
+    
 def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     """
     (do (setv v1 e1) ... (setv vk ek) final)
@@ -133,8 +137,13 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     final = gen_numeric_expr(max_depth, bound)
     return [SYM("do"), *forms, final]
 
+def dump_sexp(sexp):
+    s= re.sub(r"\(fn \(([\w+])\)" ,r"(fn [\1]",dumps(sexp))
+    s= re.sub(r"\(let \(([\w+])\)" ,r"(fn [\1]",s)
+    return s
+
 def gen_program_with_setv_s(max_bind: int = 2, max_depth: int = 4)->str:
-    return dumps(gen_program_with_setv(max_bind, max_depth))    
+    return dump_sexp(gen_program_with_setv(max_bind, max_depth))
 
 # -----------------------------
 # 1) Hy で逐次評価
@@ -201,6 +210,7 @@ def alpha_rename(body: Any, old: str, new: str) -> Any:
             return [alpha_rename(x, old, new) for x in body]
     else:
         return body
+
 
 def substitute(expr: Any, var: str, val: Any) -> Any:
     """捕獲回避付き置換 [var := val]expr"""
@@ -486,16 +496,17 @@ def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSampl
                 break
     return out
 
-def test(n: int, max_depth=4, max_bind=2) -> List[ProgSample]:
+def test(n: int, max_depth=4, max_bind=2,onlygen=False) -> List[ProgSample]:
     out: List[ProgSample] = []
     for i in range(n):
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
         print(s)
-        v_hy = hy_eval_program_str(s)
-        print(v_hy)
-        print("isterminal",isterminal(v_hy))
-        v_be = beta_eval_program_str(s)
-        out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
+        if(not onlygen):
+            v_hy = hy_eval_program_str(s)
+            print(v_hy)
+            print("isterminal",isterminal(v_hy))
+            v_be = beta_eval_program_str(s)
+            out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
     return out
 
 # -----------------------------
@@ -525,10 +536,11 @@ if __name__ == "__main__":
     ap.add_argument("--max_depth", type=int, default=4)
     ap.add_argument("--max_bind", type=int, default=2)
     ap.add_argument("--test", type=bool, default=False)
+    ap.add_argument("--onlygen", type=bool, default=False)
     args = ap.parse_args()
 
     if(args.test):
-        test(args.n,args.max_depth,args.max_bind)
+        test(args.n,args.max_depth,args.max_bind,onlygen=args.onlygen)
     else:
         main(args)        
 
