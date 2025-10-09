@@ -140,7 +140,14 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
 
 def dump_sexp(sexp):
     s= re.sub(r"\(fn \(([\w+])\)" ,r"(fn [\1]",dumps(sexp))
-    s= re.sub(r"\(let \(([\w+])\)" ,r"(fn [\1]",s)
+    s= re.sub(r"\(list \(([\w+])\)" ,r"(list [\1]",s)
+    if(USE_LET):
+        s= re.sub(r"\(let \(([\w+])\)" ,r"(let [\1]",s)
+    return s
+
+def dump_sexp_sed(sexp):
+    s=dump_sexp(sexp).replace("\"","").replace("hy.models.","")
+    s=s.replace("Integer","").replace("Float","")
     return s
 
 def gen_program_with_setv_s(max_bind: int = 2, max_depth: int = 4)->str:
@@ -155,9 +162,11 @@ def hy_eval_program_str(program_str: str) -> Any:
     try:
         return hy.eval(model)
     except NameError as e:
-        print(e)
+        #print(e)
         v=f"{e}".split("'")[1]
-        return p.peval_except(v,model)
+        return dump_sexp_sed(p.peval_except(v,model))
+    except Exception as e:
+        print(e,program_str)
 
 # -----------------------------
 # 2) β-簡約（簡易 λ計算）評価
@@ -493,24 +502,25 @@ def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSampl
     while len(out) < n:
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
         for _ in range(retries):
-            v_hy,ok=isOK(lambda :hy_eval_program_str(s))
-                # ok=isterminal(v_hy) #式のままでいい
+            v_hy,ok=isOK(lambda :hy_eval_program_str(s)) # ok=isterminal(v_hy) #式のままでいい
             # β-簡約（let などの糖衣脱ぎは beta_step 内で行われる）
             v_be,_=isOK(lambda :beta_eval_program_str(s))
-            if ok:
-                out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
-                break
+            #if ok:
+            out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
+            #    break
     return out
 
-def test(n: int, max_depth=4, max_bind=2,onlygen=False) -> List[ProgSample]:
+def test(n: int, max_depth=4, max_bind=2,onlygen=False,debug=False) -> List[ProgSample]:
     out: List[ProgSample] = []
     for i in range(n):
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
-        print(s)
+        if(debug):
+            print(s)
         if(not onlygen):
             v_hy = hy_eval_program_str(s)
-            print(v_hy)
-            print("isterminal",isterminal(v_hy))
+            if(debug):
+                print(v_hy)
+            #print("isterminal",isterminal(v_hy))
             v_be = beta_eval_program_str(s)
             out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
     return out
@@ -546,7 +556,8 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     if(args.test):
-        test(args.n,args.max_depth,args.max_bind,onlygen=args.onlygen)
+        out=test(args.n,args.max_depth,args.max_bind,onlygen=args.onlygen)
+        #print(out)
     else:
         main(args)        
 
