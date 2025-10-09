@@ -1,9 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, List, Tuple, Optional, Iterable, Set
+from typing import Any, List, Tuple, Optional, Iterable, Set,Union
 import random, math, ast, re, argparse
 import hy
 import re
+import peval_pure as p
 from sexpdata import Symbol,  dumps, loads
 
 """
@@ -16,9 +17,8 @@ from sexpdata import Symbol,  dumps, loads
 
 - Dyck＋labels は LIST に加えて VEC（[...]）もサポート。
 """
-
+SExp = Union[list, tuple, str, int, float, bool] #Any?
 SYM = Symbol
-
 PRIMS = {
     "+", "-", "*", "/", "pow", "abs", "round", "max", "min",
     "<", "<=", ">", ">=", "=", "!=", "if", "list", "do", "setv", "let", "fn",
@@ -35,11 +35,14 @@ def sexp_list(*xs: Any) -> list: return list(xs)
 # -----------------------------
 # 0) 乱数式（自由/束縛あり）
 # -----------------------------
-_NUM_UNARY_FUNCS = ["abs", "round"]
-_NUM_BINARY_OPS  = ["+", "-", "*", "/"]
+_NUM_UNARY_FUNCS = ["abs"] #, "round"]
+_NUM_BINARY_OPS  = ["+", "-", "*"] #, "/"]
 _NUM_NARY_FUNCS  = ["max", "min", "sum"]  # sum は (sum (list ...)) として生成
 _POW_FUNC        = "pow"
 _CMP_OPS         = ["<", "<=", ">", ">=", "=", "!="]
+
+if(MOD==0):
+    _NUM_BINARY_OPS.append("/")
 
 def _rand_number() -> float | int:
     if random.random() < 0.6:
@@ -63,7 +66,7 @@ def gen_var_atom(bound: Set[str], allow_free: bool = True) -> Symbol:
         pool.add(random.choice(VAR_POOL))
     return SYM(random.choice(list(pool)))
 
-def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
+def gen_numeric_expr(depth: int, bound: Set[str],rtable:list=[0.28,0.40,0.50,0.60,0.75,0.88]) -> Any:
     """数値へ評価される式（変数/λ適用含む）"""
     if depth <= 0 or random.random() < 0.25:
         if random.random() < 0.5 and (bound or random.random() < 0.5):
@@ -71,24 +74,24 @@ def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
         return _rand_number()
 
     r = random.random()
-    if r < 0.28:
+    if r < rtable[0]:
         # 二項
         op = random.choice(_NUM_BINARY_OPS)
         return [SYM(op), gen_numeric_expr(depth-1, bound), gen_numeric_expr(depth-1, bound)]
-    elif r < 0.40:
+    elif r < rtable[1]:
         # 単項
         f = random.choice(_NUM_UNARY_FUNCS)
         return [SYM(f), gen_numeric_expr(depth-1, bound)]
-    elif r < 0.50:
+    elif r < rtable[2]:
         # pow
         return [SYM(_POW_FUNC), gen_numeric_expr(depth-1, bound), random.randint(-4, 4) or 1]
-    elif r < 0.60:
+    elif r < rtable[3]:
         # n-ary
         f = random.choice(_NUM_NARY_FUNCS)
         n = random.randint(2, 4)
         items = [gen_numeric_expr(depth-1, bound) for _ in range(n)]
         return [SYM(f), [SYM("list"), *items]]
-    elif r < 0.75:
+    elif r < rtable[4]:
         # if 条件式
         a = gen_numeric_expr(depth-1, bound)
         b = gen_numeric_expr(depth-1, bound)
@@ -96,7 +99,7 @@ def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
         th = gen_numeric_expr(depth-1, bound)
         el = gen_numeric_expr(depth-1, bound)
         return [SYM("if"), cmp, th, el]
-    elif r < 0.88:
+    elif r < rtable[5] or (not USE_LET):
         # λ抽象→即時適用 ((fn [p] body) arg)
         used = set(bound)
         p = fresh_var(used)
@@ -110,9 +113,7 @@ def gen_numeric_expr(depth: int, bound: Set[str]) -> Any:
         e = gen_numeric_expr(depth-1, bound)
         body = gen_numeric_expr(depth-1, bound | {v})
         return [SYM("let"), [SYM(v), e], body]
-    else:
-        pass
-    
+
 def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     """
     (do (setv v1 e1) ... (setv vk ek) final)
@@ -151,7 +152,12 @@ def gen_program_with_setv_s(max_bind: int = 2, max_depth: int = 4)->str:
 def hy_eval_program_str(program_str: str) -> Any:
     # Hy は 1式モデルが基本なので (do ...) に包んでおくと評価が容易
     model = hy.read(program_str)    # 1式
-    return hy.eval(model)
+    try:
+        return hy.eval(model)
+    except NameError as e:
+        print(e)
+        v=f"{e}".split("'")[1]
+        return p.peval_except(v,model)
 
 # -----------------------------
 # 2) β-簡約（簡易 λ計算）評価
