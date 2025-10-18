@@ -138,9 +138,45 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     final = gen_numeric_expr(max_depth, bound)
     return [SYM("do"), *forms, final]
 
+#()->[]
+def replace_list(ins:str,tmp:str="",listdepth:int=0,depths=[],debug=False):
+    clen=0
+    i=0
+    while(ins!=""):
+        s=ins[i]
+        if(ins[i:i+5]=="(list"):
+            listdepth+=1
+            depths[listdepth]=0
+            tmp,c=replace_list(ins[i+5:],tmp+"(list [" ,listdepth,depths,debug)
+            clen+=c
+            i+=c
+        elif(ins[i:i+6]=="( list"):    
+            listdepth+=1
+            depths[listdepth]=0
+            tmp,c=replace_list(ins[i+5:],tmp+"(list [" ,listdepth,depths,debug)
+            clen+=c
+            i+=c
+        else:
+            clen+=1
+            tmp+=s
+            if(s=="("):
+                depths[listdepth]+=1
+            elif(s==")"):
+                depths[listdepth]-=1
+                if(depths[listdepth]==0):
+                    listdepth-=1
+                    tmp+="])"
+                    return tmp,clen
+            i+=1
+        if(debug):
+            print("input",ins[i:])
+            print("outtemp",tmp)
+
+    return tmp,clen
+
 def dump_sexp(sexp):
     s= re.sub(r"\(fn \(([\w+])\)" ,r"(fn [\1]",dumps(sexp))
-    s= re.sub(r"\(list \(([\w+])\)" ,r"(list [\1]",s)
+    s= replace_list(s)
     if(USE_LET):
         s= re.sub(r"\(let \(([\w+])\)" ,r"(let [\1]",s)
     return s
@@ -552,12 +588,20 @@ if __name__ == "__main__":
     ap.add_argument("--max_depth", type=int, default=4)
     ap.add_argument("--max_bind", type=int, default=2)
     ap.add_argument("--test", type=bool, default=False)
+    ap.add_argument("--testlist", type=bool, default=False)
     ap.add_argument("--onlygen", type=bool, default=False)
     args = ap.parse_args()
 
     if(args.test):
         out=test(args.n,args.max_depth,args.max_bind,onlygen=args.onlygen)
         #print(out)
+    elif(args.testlist):
+#        s="(list -6.72 (* -4 9) ((fn [y] -9) -8.38) v)"
+        s="(list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v)"
+        print(s)
+        s,slen=replace_list(s,depths=[0]*20,debug=True)
+        print(s,slen)
     else:
         main(args)        
+    
 
