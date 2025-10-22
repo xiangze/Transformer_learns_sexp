@@ -139,40 +139,59 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     return [SYM("do"), *forms, final]
 
 #()->[]
-def replace_list(ins:str,tmp:str="",listdepth:int=0,depths=[],debug=False):
+listhreads=["("+" "*i+"list" for i in range(3)]
+def _replace_list(ins:str,tmp:str="",listdepth:int=0,depths=[],debug=False):
     clen=0
     i=0
+    
     while(ins!=""):
-        s=ins[i]
-        if(ins[i:i+5]=="(list"):
-            listdepth+=1
-            depths[listdepth]=0
-            tmp,c=replace_list(ins[i+5:],tmp+"(list [" ,listdepth,depths,debug)
-            clen+=c
-            i+=c
-        elif(ins[i:i+6]=="( list"):    
-            listdepth+=1
-            depths[listdepth]=0
-            tmp,c=replace_list(ins[i+5:],tmp+"(list [" ,listdepth,depths,debug)
-            clen+=c
-            i+=c
-        else:
-            clen+=1
-            tmp+=s
+         assert(listdepth>=0)
+         assert(depths[listdepth]>=0)
+
+         for ls in listhreads: #"( list"
+            l=len(ls)
+            if(len(ins)>l and ins[i:i+l]==ls):    
+                depths[listdepth+1]=1
+                tmp,c=_replace_list(ins[i+l:],tmp+ls+" [" ,listdepth+1,depths,debug)
+                clen+=c+1
+                i+=c+l-2
+         else:
+            try:
+                s=ins[i]
+            except:
+                print("*",i,len(ins),ins,listdepth,depths[listdepth])
+                exit()
+
             if(s=="("):
                 depths[listdepth]+=1
             elif(s==")"):
                 depths[listdepth]-=1
                 if(depths[listdepth]==0):
-                    listdepth-=1
-                    tmp+="])"
-                    return tmp,clen
+                        return tmp+"])",clen
+                
+            clen+=1
+            tmp+=s
             i+=1
-        if(debug):
-            print("input",ins[i:])
-            print("outtemp",tmp)
+         if(debug):
+             print(f"i,{i}: s={s} listdepth:{listdepth} depth:{depths} input:{ins[i:]}  outtemp:{tmp}")
 
     return tmp,clen
+
+replace_list=lambda s,debug=False,n=10:_replace_list(s,"",0,[0]*n,debug=debug)[0]
+
+def testlist():
+    #s="(list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v)"
+    #s   ="(do (list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v))"
+    #exps="(do (list [ -6.72 (list [ (* -4 9) 4 x]) ((fn [y] -9) -8.38) v)] )"
+    s   ="(do (list a (list aa bb cc) b c) d )"
+    exps="(do (list [a (list [aa bb cc]) b c]) d )"
+    org=s
+    s=replace_list(s,debug=True,n=4)
+    #s=replace_list(s,debug=False,n=4)
+    print(f"{len(org)}:  {org}")
+    print("out:",s)
+    print("exp:",exps)
+    
 
 def dump_sexp(sexp):
     s= re.sub(r"\(fn \(([\w+])\)" ,r"(fn [\1]",dumps(sexp))
@@ -596,11 +615,7 @@ if __name__ == "__main__":
         out=test(args.n,args.max_depth,args.max_bind,onlygen=args.onlygen)
         #print(out)
     elif(args.testlist):
-#        s="(list -6.72 (* -4 9) ((fn [y] -9) -8.38) v)"
-        s="(list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v)"
-        print(s)
-        s,slen=replace_list(s,depths=[0]*20,debug=True)
-        print(s,slen)
+        testlist()
     else:
         main(args)        
     
