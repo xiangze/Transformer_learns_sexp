@@ -151,9 +151,9 @@ def _replace_list(ins:str,tmp:str="",listdepth:int=0,depths=[],debug=False):
          for ls in listhreads: #"( list"
             l=len(ls)
             if(len(ins)>l and ins[i:i+l]==ls):    
-                depths[listdepth+1]=1
+                depths[listdepth+1]=l
                 tmp,c=_replace_list(ins[i+l:],tmp+ls+" [" ,listdepth+1,depths,debug)
-                clen+=c+1
+                clen+=c+2
                 i+=c+l-2
          else:
             try:
@@ -180,14 +180,12 @@ def _replace_list(ins:str,tmp:str="",listdepth:int=0,depths=[],debug=False):
 replace_list=lambda s,debug=False,n=10:_replace_list(s,"",0,[0]*n,debug=debug)[0]
 
 def testlist():
-    #s="(list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v)"
     #s   ="(do (list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v))"
     #exps="(do (list [ -6.72 (list [ (* -4 9) 4 x]) ((fn [y] -9) -8.38) v)] )"
     s   ="(do (list a (list aa bb cc) b c) d )"
     exps="(do (list [a (list [aa bb cc]) b c]) d )"
     org=s
     s=replace_list(s,debug=True,n=4)
-    #s=replace_list(s,debug=False,n=4)
     print(f"{len(org)}:  {org}")
     print("out:",s)
     print("exp:",exps)
