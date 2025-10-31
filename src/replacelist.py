@@ -1,5 +1,5 @@
 import argparse
-
+import re
 #()->[]
 listhreads=["("+" "*i+"list" for i in range(10)]
 #括弧の数だけを数える
@@ -40,12 +40,27 @@ def _replace_list(inss:str,debug=False,addlist=True):
                     else:
                         tmp+=")"
                 except:
-                    print(f"depth:{depth-1}  input:{ins}  outtemp:{tmp}")       
+                    #print(f"depth:{depth-1}  input:{ins}  outtemp:{tmp}")       
+                    print(f"depth:{depth-1}  org{inss}, input:{ins}  outtemp:{tmp}")       
+                    showdepth(inss)
+                    showdepth(tmp)
                     exit()
             else:
                 tmp+=s
             ins=ins[1:]
     return tmp
+
+def showdepth(inss:str):
+    depth=0
+    ins=inss.replace("("," (").replace(")"," ) ").replace("  "," ").split(" ")
+    while(ins!=[]):
+        s=ins[0]
+        if("(" in s):
+            depth+=1
+        print(" "*depth+s,":",depth)
+        if(s==")"):
+            depth-=1
+        ins=ins[1:]
 
 replace_list=lambda s,debug=False,n=10,addlist=True:_replace_list(s,debug=debug,addlist=addlist)
 
@@ -72,17 +87,21 @@ def testlist(pat=[],debug=False):
     if(pat!=[]):
         patterns=pat
         
-    for p in patterns:
+    for i,p in enumerate(patterns):
         org,exp=p
-        #s=test_inout(org,exp,True)
         try:
             s=test_inout(org,exp,False)
             if(exp.replace(" ","")!=s.replace(" ","")):
-                print("differ !!")
-                s=test_inout(org,exp,debug=True)    
+                print(f"differ {i}th !!")
+                s=test_inout(org,exp,debug=True) 
+                showdepth(org)
+                showdepth(exp)
                 exit()            
-        except:
+        except Exception as e:
+            print(f"exception at {i}th",e)
             s=test_inout(org,exp,debug=True)    
+            showdepth(org)
+            showdepth(exp)
             exit()
 
 def testlist_regression(n,max_bind, max_depth,debug=False): 
