@@ -6,6 +6,7 @@ import hy
 import re
 import peval_pure as p
 from sexpdata import Symbol,  dumps, loads
+from replacelist import replace_list
 
 """
 自由/束縛変数つき S式のランダム生成 + β-簡約/Hy評価 + Dyck往復（Vector対応）
@@ -138,106 +139,20 @@ def gen_program_with_setv(max_bind: int = 2, max_depth: int = 4) -> Any:
     final = gen_numeric_expr(max_depth, bound)
     return [SYM("do"), *forms, final]
 
-#()->[]
-listhreads=["("+" "*i+"list" for i in range(4)]
-def _replace_list(ins:str,tmp:str="",listdepth:int=0,depths:list=[],lens:list=[],debug=False,addlist=True):
-    """
-    ins: 入力str
-    tmp: 出力str
-    i 処理対象文字index
-    listdepth []階層の深さ
-    depths 各[]階層での()階層の深さ
-    lens[] 各[]階層での文字列の長さ
-    """
-    i=0
-    while(ins!=""):
-         assert(listdepth>=0)
-         assert(depths[listdepth]>=0)
-         listnotfound=True
-         for ls in listhreads: #"( list"
-            l=len(ls)
-            if(len(ins)>l and ins[i:i+l]==ls):    
-                for ld in range(listdepth+1):lens[ld]+=l
-                depths[listdepth]=+1
-                depths[listdepth+1]=1
-                print(f"listin outtmp {tmp}, lens {lens}")
-                tmp,lens =_replace_list(ins[i+l:],"".join([tmp]+[ls]*addlist+[" ["]),listdepth+1,depths,lens,debug,addlist)
-                
-                if(debug):               
-                    print(f"listout {listdepth+1} list length {lens[listdepth+1]} ")
-                i+=l+lens[listdepth+1]
-                lens[listdepth+1]=0
-                listnotfound=False
-                break
-            
-         if(listnotfound):
-            try:
-                s=ins[i]
-            except:
-                print("*",i,len(ins),ins,listdepth,depths[listdepth])
-                exit()
-
-            if(s=="("):
-                depths[listdepth]+=1
-            elif(s==")"):
-                depths[listdepth]-=1
-                if(depths[listdepth]==0):
-                        if(listdepth==0):
-                            return tmp+")",lens
-                        if(addlist):
-                            tmp+="])"
-                        else:
-                            tmp+="]"
-
-                        if(debug):               
-                            print(f"i{i+1}: s={s} listdepth:{listdepth-1} depth:{depths} lens:{lens}, input:{ins[i+1:]}  outtemp:{tmp}")
-                            print("close )")
-                        i+=1
-                        for ld in range(listdepth+1):lens[ld]+=1 
-                        return tmp,lens
-            tmp+=s
-            i+=1
-            for ld in range(listdepth+1):lens[ld]+=1 
-
-         if(debug):
-             print(f"i{i}: s={s} listdepth:{listdepth} depth:{depths} lens:{lens}, input:{ins[i:]}  outtemp:{tmp}")
-
-    return tmp,lens
-
-replace_list=lambda s,debug=False,n=10,addlist=True:_replace_list(s,"",0,[0]*n,[0]*n,debug=debug,addlist=addlist)[0]
-
-def testlist():
-    patterns=[
-        ["(do (list -6.72 (list (* -4 9) 4 x) ((fn [y] -9) -8.38) v))",
-         "(do (list [ -6.72 (list [ (* -4 9) 4 x]) ((fn [y] -9) -8.38) v)] )"],
-         ["(do (list a (list x y z) e f) d )",
-          "(do (list [a (list [x y z]) e f]) d )"         ],
-          ["(do (list a (list x y) e f) d)",
-           "(do (list [a (list [x y]) e f]) d)"           ],
-           ["(do (list a (list x (list y z)) e f) d )",
-            "(do (list [a (list [x (list [y z]) ]) e f]) d )"             ]
-        ]
-    org="(do (list a (list x y) e f) d)"
-    exps="(do (list [a (list [x y]) e f]) d)"
-    s=replace_list(org,debug=True,n=4).replace("[ ","[")
-    print(f"in {len(org)}:  {org}")
-    print("out:",s)
-    print("exp:",exps)
-
-def dump_sexp(sexp):
+def  replace_sexp(sexp):
     s= re.sub(r"\(fn \(([\w+])\)" ,r"(fn [\1]",dumps(sexp))
     s= replace_list(s)
     if(USE_LET):
         s= re.sub(r"\(let \(([\w+])\)" ,r"(let [\1]",s)
     return s
 
-def dump_sexp_sed(sexp):
-    s=dump_sexp(sexp).replace("\"","").replace("hy.models.","")
+def  replace_sexp_sed(sexp):
+    s= replace_sexp(sexp).replace("\"","").replace("hy.models.","")
     s=s.replace("Integer","").replace("Float","")
     return s
 
 def gen_program_with_setv_s(max_bind: int = 2, max_depth: int = 4)->str:
-    return dump_sexp(gen_program_with_setv(max_bind, max_depth))
+    return  replace_sexp(gen_program_with_setv(max_bind, max_depth))
 
 # -----------------------------
 # 1) Hy で逐次評価
@@ -250,7 +165,7 @@ def hy_eval_program_str(program_str: str) -> Any:
     except NameError as e:
         #print(e)
         v=f"{e}".split("'")[1]
-        return dump_sexp_sed(p.peval_except(v,model))
+        return  replace_sexp_sed(p.peval_except(v,model))
     except Exception as e:
         print(e,program_str)
 
@@ -645,8 +560,6 @@ if __name__ == "__main__":
     if(args.test):
         out=test(args.n,args.max_depth,args.max_bind,onlygen=args.onlygen)
         #print(out)
-    elif(args.testlist):
-        testlist()
     else:
         main(args)        
     
