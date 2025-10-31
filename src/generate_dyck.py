@@ -84,9 +84,9 @@ def _gen_comparison(depth: int) -> Any:
 # Hyで評価
 # ----------------------------
 def eval_hy_expr_str(expr_str: str) -> Any:
-    # hy.read_str は文字列をHyのモデル（抽象構文オブジェクト）に変換
+    # hy.read は文字列をHyのモデル（抽象構文オブジェクト）に変換
     # hy.eval はそのモデルを評価してPython値を返す
-    model = hy.read_str(expr_str)
+    model = hy.read(expr_str)
     return hy.eval(model)  # 必要なら module=… を渡して環境を分けられます
 
 # ----------------------------

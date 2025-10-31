@@ -72,7 +72,7 @@ def _gen_comparison(depth: int) -> Any:
     return [Symbol(op), a, b]
 
 def _eval_hy_expr_str(expr_str: str) -> Any:
-    model = hy.read_str(expr_str)
+    model = hy.read(expr_str)
     return hy.eval(model)
 
 @dataclass
