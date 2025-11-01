@@ -1,5 +1,7 @@
 import argparse
 import re
+from difflib import context_diff
+
 #()->[]
 listhreads=["("+" "*i+"list" for i in range(10)]
 #括弧の数だけを数える
@@ -29,47 +31,45 @@ def _replace_list(inss:str,debug=False,addlist=True):
                 depth+=1
                 tmp+="("
             elif(s==")"):
-                try:
-                    depth-=1
-                    if(depth>0 and depth==kakkostack[-1]):
-                        kakkostack.pop()
-                        if(addlist):
-                            tmp+="])"
-                        else:
-                            tmp+="]"
+                depth-=1
+                if(depth>0 and len(kakkostack)>0 and depth==kakkostack[-1]):
+                    kakkostack.pop()
+                    if(addlist):
+                        tmp+="])"
                     else:
-                        tmp+=")"
-                except:
-                    #print(f"depth:{depth-1}  input:{ins}  outtemp:{tmp}")       
-                    print(f"depth:{depth-1}  org{inss}, input:{ins}  outtemp:{tmp}")       
-                    showdepth(inss)
-                    showdepth(tmp)
-                    exit()
+                        tmp+="]"
+                else:
+                    tmp+=")"
             else:
                 tmp+=s
             ins=ins[1:]
     return tmp
 
+def kakkocheck(ins:str):
+    depth=0
+    while(ins!=""):
+        s=ins[0]
+        if("(" in s): depth+=1
+        if(s==")"):  depth-=1
+        ins=ins[1:]
+    assert(depth==0)    
+    return depth==0
+
 def showdepth(inss:str):
+    out=""
     depth=0
     ins=inss.replace("("," (").replace(")"," ) ").replace("  "," ").split(" ")
     while(ins!=[]):
         s=ins[0]
         if("(" in s):
             depth+=1
-        print(" "*depth+s,":",depth)
+        out+=" "*depth+s+":"+str(depth)
         if(s==")"):
             depth-=1
         ins=ins[1:]
+    return out
 
 replace_list=lambda s,debug=False,n=10,addlist=True:_replace_list(s,debug=debug,addlist=addlist)
-
-def test_inout(org,exp,debug=False):
-    s=replace_list(org,n=5,debug=debug).replace("[ ","[")
-    print(f"in {len(org)}:  {org}")
-    print("out:",s)
-    print("exp:",exp)
-    return s
 
 def testlist(pat=[],debug=False):
     patterns=[
@@ -82,27 +82,39 @@ def testlist(pat=[],debug=False):
            ["(do (list a (list x (list y z)) e f) d )",
             "(do (list [a (list [x (list [y z]) ]) e f]) d )"             ],
         ["(do (setv y (sum (list  (min (list  ((fn [v] 3) -4.77) (if (> 8.79 x) -7 t) (pow y 4) x)) (* ((fn [a] 3) 4) (* 4.56 -3)) ((fn [v] (+ -8 v)) (+ 6.8 0.97)) ((fn [c] (pow t -1)) (if (= -3 a) -1 1.06))))))",
-         "(do (setv y (sum (list[ (min (list[  ((fn [v] 3) -4.77) (if (> 8.79 x) -7 t) (pow y 4) x)] ]) (* ((fn [a] 3) 4) (* 4.56 -3)) ((fn [v] (+ -8 v)) (+ 6.8 0.97))  ((fn [c] (pow t -1)) (if (= -3 a) -1 1.06)))  ))"],
+         "(do (setv y  (sum  (list[   (min (list[   ((fn [v] 3) -4.77) (if (> 8.79 x) -7 t) (pow y 4) x   ])  )  (* ((fn [a] 3) 4) (* 4.56 -3))  ((fn [v] (+ -8 v)) (+ 6.8 0.97))  ((fn [c] (pow t -1)) (if (= -3 a) -1 1.06))  ]) ) ))"
+        ],
     ]
     if(pat!=[]):
         patterns=pat
         
     for i,p in enumerate(patterns):
         org,exp=p
+        if(not kakkocheck(org)):
+            print("kakko not match")
+            exit()
         try:
-            s=test_inout(org,exp,False)
+            s=replace_list(org,n=5,debug=False).replace("[ ","[")
             if(exp.replace(" ","")!=s.replace(" ","")):
                 print(f"differ {i}th !!")
-                s=test_inout(org,exp,debug=True) 
-                showdepth(org)
-                showdepth(exp)
-                exit()            
+                print(f"in {len(org)}:  {org}")
+                print("out:",s)
+                print("exp:",exp)
+                faildiff(org,exp)
+                exit()      
+            else:
+                print(f"success {i}")      
         except Exception as e:
             print(f"exception at {i}th",e)
-            s=test_inout(org,exp,debug=True)    
-            showdepth(org)
-            showdepth(exp)
+            faildiff(org,exp)
+            context_diff(org,exp)
             exit()
+
+def faildiff(org,exp):
+    out=replace_list(org,n=5,debug=True).replace("[ ","[")
+    out=showdepth(out)
+    exp=showdepth(exp)
+    print(context_diff(out,exp))
 
 def testlist_regression(n,max_bind, max_depth,debug=False): 
     import generate_sexp_with_variable as g
