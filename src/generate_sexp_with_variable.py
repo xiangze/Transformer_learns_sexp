@@ -163,12 +163,11 @@ def hy_eval_program_str(program_str: str) -> Any:
     try:
         return hy.eval(model)
     except NameError as e:
-        #print(e)
         v=f"{e}".split("'")[1]
-        return  replace_sexp_sed(p.peval_except(v,model))
+        return  replace_sexp_sed(p.peval_except(v,model)) #部分評価
     except Exception as e:
-        print(e,program_str)
-
+        print(e,";",program_str)
+        return None
 # -----------------------------
 # 2) β-簡約（簡易 λ計算）評価
 #    - (let [x a y b] body) を ((fn [x y] body) a b) へ
@@ -435,7 +434,7 @@ def sexp_to_dyck_and_labels(sexp: Any) -> Tuple[str, List[str]]:
         elif x is None:
             labels.append("NONE")
         else:
-            raise TypeError(f"Unsupported: {type(x)}")
+            raise TypeError(f"Unsupported: {type(x)} {x}, {sexp}")
         dyck.append(")")
     visit(sexp)
     return "".join(dyck), labels
@@ -498,7 +497,7 @@ def isOK(f):
     except Exception:
         return None,False
 
-def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSample]:
+def make_dataset(n: int, max_depth=4, max_bind=2, retries=100,fname="") -> List[ProgSample]:
     out: List[ProgSample] = []
     while len(out) < n:
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
@@ -506,12 +505,13 @@ def make_dataset(n: int, max_depth=4, max_bind=2, retries=100) -> List[ProgSampl
             v_hy,ok=isOK(lambda :hy_eval_program_str(s)) # ok=isterminal(v_hy) #式のままでいい
             # β-簡約（let などの糖衣脱ぎは beta_step 内で行われる）
             v_be,_=isOK(lambda :beta_eval_program_str(s))
-            #if ok:
             out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
-            #    break
+    if(len(fname)>0):
+        with open(fname,"w") as f:
+            print(out,file=f)
     return out
 
-def test(n: int, max_depth=4, max_bind=2,onlygen=False,debug=False) -> List[ProgSample]:
+def test(n: int, max_depth=4, max_bind=2,onlygen=False,debug=False,fname="") -> List[ProgSample]:
     out: List[ProgSample] = []
     for i in range(n):
         s=gen_program_with_setv_s(max_bind=max_bind, max_depth=max_depth)
@@ -524,6 +524,10 @@ def test(n: int, max_depth=4, max_bind=2,onlygen=False,debug=False) -> List[Prog
             #print("isterminal",isterminal(v_hy))
             v_be = beta_eval_program_str(s)
             out.append(ProgSample(sexp=s, value_hy=float(v_hy) if isinstance(v_hy,(int,float)) else v_hy, value_beta=v_be))
+    
+    if(len(fname)>0):
+        with open(fname,"w") as f:
+            print(out,file=f)
     return out
 
 # -----------------------------
@@ -549,11 +553,10 @@ def main(args):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=10)
+    ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--max_depth", type=int, default=4)
     ap.add_argument("--max_bind", type=int, default=2)
     ap.add_argument("--test", action="store_true")
-    ap.add_argument("--testlist", action="store_true")
     ap.add_argument("--onlygen", action="store_true")
     args = ap.parse_args()
 
