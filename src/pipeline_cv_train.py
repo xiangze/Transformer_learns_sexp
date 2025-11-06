@@ -11,7 +11,8 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Sequence, Tuple
+from __future__ import annotations
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import util
 import generate_sexp_with_variable as gen_mod
 import evallisp as eval_mod
@@ -23,10 +24,14 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
 import util 
+import ramdom_hof_sexpr as hof
+
 # ------------------------------
 # Data pipeline components
 # ------------------------------
-def eval_S(S: List[List[str]], log_steps: bool) -> Tuple[List[List[str]], Optional[List[int]]]:
+def eval_S(S: List[List[str]],use_gen:bool ,log_steps: bool) -> Tuple[List[List[str]], Optional[List[int]]]:
+    if(use_gen):
+        return gen_mod.hy_eval_program_str(S)
     if(log_steps):
         return step_counter.eval_with_steps(S) 
     else:
@@ -67,6 +72,8 @@ def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
 import transformer_dick_fixed_embed as fixed
 import Recursive_Ttansformer as recursive
 def train_one_fold(model_kind: str,
+                   ds_train,
+                   ds_val,
                    train_pairs: List[Tuple[str, str]],
                    val_pairs: List[Tuple[str, str]],
                    out_dir: Path,
@@ -83,10 +90,6 @@ def train_one_fold(model_kind: str,
         model=recursive.SharedTransformerRegressor()
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
-    
-    print("[4/5] token to Tensor...")
-    ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
-    ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
 
     num_workers=1
     train_loader = DataLoader(ds_train[:], batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
@@ -104,20 +107,26 @@ def train_one_fold(model_kind: str,
     save_pairs_jsonl(val_pairs, tmp_val)
     return best_val_acc,last_val_acc
 
-def pipeline(args,out_root="result"):
+def pipeline(args,out_root="result", seed: int =-1):
+    if(args.debug):
+        args.n_sexps=10
     print("[1/5] Generating S-expressions...")
     t0 = time.time()
-    #S= gen_mod.make_dataset(,args.max_depth,args.n_free_vars)
-    S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
-    print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
-
-    print(S[0])
-
-    print("[2/5] Evaluating S-expressions...")
-    t0 = time.time()
-    ss, steps = eval_S(S, args.log_eval_steps)
-
-    print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
+    if(args.use_hof):
+        if seed is not None:
+            random.seed(seed)
+        results=hof.geneval(args.n_sexp,args.max_depth,seed=seed,allow_frees=True,var_pool_size=100,target_free=args.max_bind)
+        ss=[r["value"] for r in results]
+        steps=[r["steps"] for r in results]
+        S=[r["Expr"] for r in results]
+    else:
+        S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
+        print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
+        print(S[0])
+        print("[2/5] Evaluating S-expressions...")
+        t0 = time.time()
+        ss, steps = eval_S(S, args.use_gen,args.log_eval_steps)
+        print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
 
     if args.log_eval_steps and steps is not None:
         step_log_path = out_root + "/eval_steps.csv"
@@ -129,9 +138,14 @@ def pipeline(args,out_root="result"):
 
     print("[3/5] Converting to Dyck language...")
     t0 = time.time()
-    Dyks, dlabels = s2d.exp_str_to_dyck_and_labels(S) 
+    if(args.use_myconverter):
+        Dyks, dlabels = s2d.sexp_str_to_dyck_and_labels(S) 
+    else:
+        Dyks, dlabels = gen_mod.sexp_str_to_dyck(S)
+
     pairs = make_pairs(Dyks, dlabels)
     print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
+
 
     print("[4/5] K-fold training/evaluation...")
     folds = kfold_split(len(pairs), args.kfold, args.seed)
@@ -145,7 +159,13 @@ def pipeline(args,out_root="result"):
         save_pairs_jsonl(val_pairs, fold_dir + "/val.jsonl")
 
         print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
-        _ = train_one_fold(args.model, train_pairs, val_pairs, fold_dir,
+    
+
+        ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
+        ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
+        print("[4/5] token to Tensor...")
+
+        _ = train_one_fold(args.model, ds_train, ds_val, fold_dir,
                         epochs=args.epochs, batch_size=args.batch_size, seed=args.seed)
 
         if args.visualize:
@@ -171,7 +191,11 @@ if __name__=="__main__":
                         help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
     parser.add_argument("--visualize", action="store_true",
                         help="学習後にmatrix_visualizerでAttention Matrixを保存 (可能な場合)")
-
+    parser.add_argument("--use_gen", action="store_true",
+                        help="S式評価にhyの部分評価を使う")
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--use_myconverter", action="store_true")
+    parser.add_argument("--use_hof", action="store_true",help="use spesific Higher Order Function random generator")
     args = parser.parse_args()
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
