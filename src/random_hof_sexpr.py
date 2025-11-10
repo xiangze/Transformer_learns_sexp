@@ -122,7 +122,7 @@ def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Sy
         if expr not in bound and expr not in env and not isinstance(env.get(expr), Closure):
             out.add(expr)
         return out
-    if isinstance(expr, list) and expr:
+    elif isinstance(expr, list) and expr:
         head, *tail = expr
         if is_symbol(head) and f"{head}" == "fn":
             params = tail[0]
@@ -137,10 +137,9 @@ def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Sy
 # -----------------------------
 # Simplifiers
 # -----------------------------
-
 def simplify_nary(op_sym: Symbol, args: List[SExpr]) -> Tuple[SExpr, int]:
     """Return (simplified_form, steps_added)."""
-    name = f"{op_sym}" #.name
+    name = f"{op_sym}"
     if name == "+":
         flat: List[SExpr] = []
         for a in args:
@@ -152,12 +151,12 @@ def simplify_nary(op_sym: Symbol, args: List[SExpr]) -> Tuple[SExpr, int]:
         flat2: List[SExpr] = [x for x in flat if not (is_number(x) and x == 0)]
         if len(flat2) == 0:
             return 0, int(pprint_sexpr(before) != "0")
-        if len(flat2) == 1:
+        elif len(flat2) == 1:
             return flat2[0], int(pprint_sexpr(before) != pprint_sexpr(flat2[0]))
-        after = [S("+")] + flat2
-        return after, int(pprint_sexpr(before) != pprint_sexpr(after))
-
-    if name == "*":
+        else:
+            after = [S("+")] + flat2
+            return after, int(pprint_sexpr(before) != pprint_sexpr(after))
+    elif name == "*":
         flat: List[SExpr] = []
         for a in args:
             if isinstance(a, list) and a and a[0] == S("*"):
@@ -171,17 +170,17 @@ def simplify_nary(op_sym: Symbol, args: List[SExpr]) -> Tuple[SExpr, int]:
         flat2 = [x for x in flat if x is not None]
         if len(flat2) == 0:
             return 1, int(pprint_sexpr(before) != "1")
-        if len(flat2) == 1:
+        elif len(flat2) == 1:
             return flat2[0], int(pprint_sexpr(before) != pprint_sexpr(flat2[0]))
-        after = [S("*")] + flat2
-        return after, int(pprint_sexpr(before) != pprint_sexpr(after))
-
-    return [op_sym] + args, 0
+        else:
+            after = [S("*")] + flat2
+            return after, int(pprint_sexpr(before) != pprint_sexpr(after))
+    else:
+        return [op_sym] + args, 0
 
 # -----------------------------
 # Evaluator with partial simplification + step counting
 # -----------------------------
-
 @dataclass
 class EvalResult:
     value: Any
@@ -189,223 +188,218 @@ class EvalResult:
     is_value: bool
     steps: int = 0
 
-
 def _sum_steps(*results: EvalResult) -> int:
     return sum(r.steps for r in results if isinstance(r, EvalResult))
+
+def FailResult(sexp,steps)-> EvalResult:
+    return EvalResult(None,sexp,False,steps)
 
 def eval_simplify(form: SExpr, env: Env) -> EvalResult:
     # literals
     if literal_value(form):
         return EvalResult(form, form, True, 0)
-
     # symbols
-    if is_symbol(form):
+    elif is_symbol(form):
         if form in env:
             v = env[form]
             return EvalResult(v, v, True, 0)
         return EvalResult(None, form, False, 0)
-
     # lists
-    if isinstance(form, list):
+    elif isinstance(form, list):
         if not form:
             return EvalResult(None, form, False, 0)
         head, *tail = form
         head_name=f"{head}"
         # (fn [params] body) — constructing a closure is not a simplification step
-        if is_symbol(head) and head_name == "fn":
-            params = tail[0]
-            body = tail[1]
-            return EvalResult(Closure(params, body, env), form, True, 0)
-
-        # (if c a b)
-        if is_symbol(head) and head_name == "if":
-            c = eval_simplify(tail[0], env)
-            a = eval_simplify(tail[1], env)
-            b = eval_simplify(tail[2], env)
-            steps = _sum_steps(c, a, b)
-            if c.is_value:
-                # one step for folding the conditional
-                return (EvalResult(a.value, a.form, a.is_value, steps + 1)
-                        if c.value else
-                        EvalResult(b.value, b.form, b.is_value, steps + 1))
-            return EvalResult(None, [S("if"), c.form, a.form, b.form], False, steps)
-
-        # arithmetic
-        if is_symbol(head) and head_name in {"+", "-", "*", "/"}:
-            evs = [eval_simplify(a, env) for a in tail]
-            steps = _sum_steps(*evs)
-            if all(e.is_value for e in evs):
-                vals = [e.value for e in evs]
-                try:
-                    if head_name == "+":
-                        v = reduce(op.add, vals)
-                    elif head_name == "-":
-                        v = -vals[0] if len(vals) == 1 else reduce(op.sub, vals)
-                    elif head_name == "*":
-                        v = reduce(op.mul, vals)
-                    else:
-                        v = 1 / vals[0] if len(vals) == 1 else reduce(op.truediv, vals)
-                    return EvalResult(v, v, True, steps + 1)  # collapse counts as 1 step
-                except Exception:
-                    return EvalResult(None, [head] + vals, False, steps)
-            forms = [e.form for e in evs]
-            if head_name in {"+", "*"}:
-                simplified, add = simplify_nary(head, forms)
-                return EvalResult(None, simplified, False, steps + add)
-            return EvalResult(None, [head] + forms, False, steps)
-
-        # comparisons
-        if is_symbol(head) and head_name in {"<", "<=", ">", ">=", "="}:
-            evs = [eval_simplify(a, env) for a in tail]
-            steps = _sum_steps(*evs)
-            if all(e.is_value for e in evs):
-                vals = [e.value for e in evs]
-                ops = {"<": op.lt, "<=": op.le, ">": op.gt, ">=": op.ge, "=": op.eq}
-                if len(vals) == 2:
-                    v = ops[head_name](vals[0], vals[1])
+        if is_symbol(head):
+            if(head_name == "fn"):
+                params = tail[0]
+                body = tail[1]
+                return EvalResult(Closure(params, body, env), form, True, 0)
+            # (if c a b)
+            elif head_name == "if":
+                c = eval_simplify(tail[0], env)
+                a = eval_simplify(tail[1], env)
+                b = eval_simplify(tail[2], env)
+                steps = _sum_steps(c, a, b)
+                if c.is_value:
+                    # one step for folding the conditional
+                    if c.value:
+                        return EvalResult(a.value, a.form, a.is_value, steps + 1)
+                    else:                            
+                        return EvalResult(b.value, b.form, b.is_value, steps + 1)
                 else:
-                    v = all(ops[head_name](vals[i], vals[i + 1]) for i in range(len(vals) - 1))
-                return EvalResult(v, v, True, steps + 1)
-            return EvalResult(None, [head] + [e.form for e in evs], False, steps)
-
-        # HOFs: compose, partial, map, filter, reduce
-        if is_symbol(head) and head_name == "compose":
-            f = eval_simplify(tail[0], env)
-            g = eval_simplify(tail[1], env)
-            steps = _sum_steps(f, g)
-            if f.is_value and g.is_value and is_closure(f.value) and is_closure(g.value):
-                x = S("x")
-                composed_body = [f.value, [g.value, x]]
-                return EvalResult(Closure([x], composed_body, {}), [S("compose"), f.value, g.value], True, steps + 1)
-            return EvalResult(None, [S("compose"), f.form, g.form], False, steps)
-
-        if is_symbol(head) and head_name == "partial":
-            f = eval_simplify(tail[0], env)
-            args = [eval_simplify(a, env) for a in tail[1:]]
-            steps = _sum_steps(f, *args)
-            if f.is_value and is_closure(f.value):
-                known = [a.value if a.is_value else a.form for a in args]
-                part = {"type": "partial", "fn": f.value, "known": known}
-                return EvalResult(part, [S("partial"), f.form] + [a.form for a in args], True, steps + 1)
-            return EvalResult(None, [S("partial"), f.form] + [a.form for a in args], False, steps)
-
-        if is_symbol(head) and head_name == "map":
-            f = eval_simplify(tail[0], env)
-            lst = eval_simplify(tail[1], env)
-            steps = _sum_steps(f, lst)
-            if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list):
-                out: List[Any] = []
-                add_steps = 1  # recognizing & executing map
-                for v in lst.value:
-                    ap = eval_simplify([f.value, v], env)
-                    out.append(ap.value if ap.is_value else ap.form)
-                    add_steps += ap.steps
-                return EvalResult(out, out, all(literal_value(x) for x in out), steps + add_steps)
-            return EvalResult(None, [S("map"), f.form, lst.form], False, steps)
-
-        if is_symbol(head) and head_name == "filter":
-            f = eval_simplify(tail[0], env)
-            lst = eval_simplify(tail[1], env)
-            steps = _sum_steps(f, lst)
-            if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list):
-                out: List[Any] = []
-                add_steps = 1
-                for v in lst.value:
-                    ap = eval_simplify([f.value, v], env)
-                    add_steps += ap.steps
-                    if ap.is_value:
-                        if ap.value:
+                    return EvalResult(None, [S("if"), c.form, a.form, b.form], False, steps)
+            # arithmetic
+            elif head_name in {"+", "-", "*", "/"}:
+                evs = [eval_simplify(a, env) for a in tail]
+                steps = _sum_steps(*evs)
+                if all(e.is_value for e in evs):
+                    vals = [e.value for e in evs]
+                    try:
+                        if head_name == "+":
+                            v = reduce(op.add, vals)
+                        elif head_name == "-":
+                            v = -vals[0] if len(vals) == 1 else reduce(op.sub, vals)
+                        elif head_name == "*":
+                            v = reduce(op.mul, vals)
+                        else:
+                            v = 1 / vals[0] if len(vals) == 1 else reduce(op.truediv, vals)
+                        return EvalResult(v, v, True, steps + 1)  # collapse counts as 1 step
+                    except Exception:
+                        return EvalResult(None, [head] + vals, False, steps)
+                forms = [e.form for e in evs]
+                if head_name in {"+", "*"}:
+                    simplified, add = simplify_nary(head, forms)
+                    return EvalResult(None, simplified, False, steps + add)
+                return EvalResult(None, [head] + forms, False, steps)
+            # comparisons
+            elif  head_name in {"<", "<=", ">", ">=", "="}:# and (not isinstance(head,list)):
+                #'list' and 'float
+                evs = [eval_simplify(a, env) for a in tail]
+                steps = _sum_steps(*evs)
+                if all(e.is_value for e in evs):
+                    vals = [e.value for e in evs]
+                    ops = {"<": op.lt, "<=": op.le, ">": op.gt, ">=": op.ge, "=": op.eq}
+                    comp=ops[head_name]
+                    try:
+                        if len(vals) == 2:
+                            v = comp(vals[0], vals[1])
+                        else:
+                            v = all(comp(vals[i], vals[i+1]) for i in range(len(vals) - 1))
+                        return EvalResult(v, v, True, steps + 1)
+                    except:                
+                        return EvalResult(None, [head] + [e.form for e in evs], False, steps)
+                else:
+                    return EvalResult(None, [head] + [e.form for e in evs], False, steps)
+            # HOFs: compose, partial, map, filter, reduce
+            elif head_name == "compose":
+                f = eval_simplify(tail[0], env)
+                g = eval_simplify(tail[1], env)
+                steps = _sum_steps(f, g)
+                if f.is_value and g.is_value and is_closure(f.value) and is_closure(g.value):
+                    x = S("x")
+                    composed_body = [f.value, [g.value, x]]
+                    return EvalResult(Closure([x], composed_body, {}), [S("compose"), f.value, g.value], True, steps + 1)
+                else:
+                    return EvalResult(None, [S("compose"), f.form, g.form], False, steps)
+            elif  head_name == "partial":
+                f = eval_simplify(tail[0], env)
+                args = [eval_simplify(a, env) for a in tail[1:]]
+                steps = _sum_steps(f, *args)
+                if f.is_value and is_closure(f.value):
+                    known = [a.value if a.is_value else a.form for a in args]
+                    part = {"type": "partial", "fn": f.value, "known": known}
+                    return EvalResult(part, [S("partial"), f.form] + [a.form for a in args], True, steps + 1)
+                return EvalResult(None, [S("partial"), f.form] + [a.form for a in args], False, steps)
+            elif head_name == "map":
+                f = eval_simplify(tail[0], env)
+                lst = eval_simplify(tail[1], env)
+                steps = _sum_steps(f, lst)
+                if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list):
+                    out: List[Any] = []
+                    add_steps = 1  # recognizing & executing map
+                    for v in lst.value:
+                        ap = eval_simplify([f.value, v], env)
+                        out.append(ap.value if ap.is_value else ap.form)
+                        add_steps += ap.steps
+                    return EvalResult(out, out, all(literal_value(x) for x in out), steps + add_steps)
+                return EvalResult(None, [S("map"), f.form, lst.form], False, steps)
+            elif  head_name == "filter":
+                f = eval_simplify(tail[0], env)
+                lst = eval_simplify(tail[1], env)
+                steps = _sum_steps(f, lst)
+                if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list):
+                    out: List[Any] = []
+                    add_steps = 1
+                    for v in lst.value:
+                        ap = eval_simplify([f.value, v], env)
+                        add_steps += ap.steps
+                        if ap.is_value:
+                            if ap.value:
+                                out.append(v)
+                        else:
                             out.append(v)
-                    else:
-                        out.append(v)
-                return EvalResult(out, out, True, steps + add_steps)
-            return EvalResult(None, [S("filter"), f.form, lst.form], False, steps)
-
-        if is_symbol(head) and head_name == "reduce":
-            f = eval_simplify(tail[0], env)
-            lst = eval_simplify(tail[1], env)
-            has_init = len(tail) > 2
-            init = eval_simplify(tail[2], env) if has_init else None
-            steps = _sum_steps(f, lst, *( [init] if init else [] ))
-            if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list) and (not has_init or init.is_value):
-                add_steps = 1  # recognizing & starting reduce
-                if has_init:
-                    cur = init.value
-                    rest = lst.value
+                    return EvalResult(out, out, True, steps + add_steps)
                 else:
-                    if not lst.value:
-                        return EvalResult(None, [S("reduce"), f.form, lst.form], False, steps)
-                    cur = lst.value[0]
-                    rest = lst.value[1:]
-                for v in rest:
-                    ap = eval_simplify([f.value, cur, v], env)
-                    cur = ap.value if ap.is_value else ap.form
-                    add_steps += ap.steps + 1  # each fold counts at least one step
-                return EvalResult(cur, cur, literal_value(cur), steps + add_steps)
-            forms = [f.form, lst.form] + ([init.form] if has_init and init else [])
-            return EvalResult(None, [S("reduce")] + forms, False, steps)
+                    return EvalResult(None, [S("filter"), f.form, lst.form], False, steps)
+            elif  head_name == "reduce":
+                f = eval_simplify(tail[0], env)
+                lst = eval_simplify(tail[1], env)
+                has_init = len(tail) > 2
+                init = eval_simplify(tail[2], env) if has_init else None
+                steps = _sum_steps(f, lst, *( [init] if init else [] ))
+                if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list) and (not has_init or init.is_value):
+                    add_steps = 1  # recognizing & starting reduce
+                    if has_init:
+                        cur = init.value
+                        rest = lst.value
+                    else:
+                        if not lst.value:
+                            return EvalResult(None, [S("reduce"), f.form, lst.form], False, steps)
+                        cur = lst.value[0]
+                        rest = lst.value[1:]
+                    for v in rest:
+                        ap = eval_simplify([f.value, cur, v], env)
+                        cur = ap.value if ap.is_value else ap.form
+                        add_steps += ap.steps + 1  # each fold counts at least one step
+                    return EvalResult(cur, cur, literal_value(cur), steps + add_steps)
+                forms = [f.form, lst.form] + ([init.form] if has_init and init else [])
+                return EvalResult(None, [S("reduce")] + forms, False, steps)
+            else:
+            # Function application: (f a b ...)
+                fun = eval_simplify(head, env)
+                argres = [eval_simplify(a, env) for a in tail]
+                steps = _sum_steps(fun, *argres)
+                arg_vals = [e.value for e in argres]
+                arg_forms = [e.form for e in argres]
 
-        # Function application: (f a b ...)
-        fun = eval_simplify(head, env)
-        argres = [eval_simplify(a, env) for a in tail]
-        steps = _sum_steps(fun, *argres)
-        arg_vals = [e.value for e in argres]
-        arg_forms = [e.form for e in argres]
+                # calling a closure (beta‑reduction)
+                if fun.is_value:
+                    if is_closure(fun.value):
+                        cl: Closure = fun.value
+                        n = len(cl.params)
+                        k = min(n, len(arg_vals))
+                        new_env = env_extend(cl.env, cl.params[:k], arg_vals[:k])
+                        leftover = cl.params[k:]
+                        if not leftover:
+                            res = eval_simplify(cl.body, new_env)
+                            return EvalResult(res.value, res.form, res.is_value, steps + res.steps + 1)
+                        # currying: too few args -> closure with fewer params (not counted as a rewrite)
+                        return EvalResult(Closure(leftover, cl.body, new_env), [S("partial"), fun.form, S(":TOO-FEW-ARGS")], True, steps)
+                    # calling a partial
+                    elif isinstance(fun.value, dict) and fun.value.get("type") == "partial":
+                        base: Closure = fun.value["fn"]
+                        known = fun.value["known"]
+                        merged = known + arg_vals
+                        res = eval_simplify([base] + merged, env)
+                        return EvalResult(res.value, res.form, res.is_value, steps + res.steps + 1)
 
-        # calling a closure (beta‑reduction)
-        if fun.is_value and is_closure(fun.value):
-            cl: Closure = fun.value
-            n = len(cl.params)
-            k = min(n, len(arg_vals))
-            new_env = env_extend(cl.env, cl.params[:k], arg_vals[:k])
-            leftover = cl.params[k:]
-            if not leftover:
-                res = eval_simplify(cl.body, new_env)
-                return EvalResult(res.value, res.form, res.is_value, steps + res.steps + 1)
-            # currying: too few args -> closure with fewer params (not counted as a rewrite)
-            return EvalResult(Closure(leftover, cl.body, new_env), [S("partial"), fun.form, S(":TOO-FEW-ARGS")], True, steps)
-
-        # calling a partial
-        if fun.is_value and isinstance(fun.value, dict) and fun.value.get("type") == "partial":
-            base: Closure = fun.value["fn"]
-            known = fun.value["known"]
-            merged = known + arg_vals
-            res = eval_simplify([base] + merged, env)
-            return EvalResult(res.value, res.form, res.is_value, steps + res.steps + 1)
-
-        # not enough info — return simplified application
-        return EvalResult(None, [fun.form] + arg_forms, False, steps)
-
+                # not enough info — return simplified application
+                return EvalResult(None, [fun.form] + arg_forms, False, steps)
     # fallback
-    return EvalResult(None, form, False, 0)
+    return FailResult(form,0)
 
 # -----------------------------
 # Random expression generator
 # -----------------------------
-
 def rand_num() -> Union[int, float]:
     return random.randint(-5, 5) if random.random() < 0.5 else random.randint(-9, 9) / 2.0
-
 
 def rand_bool() -> bool:
     return random.choice([True, False])
 
-
 def rand_list() -> List[SExpr]:
     return [rand_num() for _ in range(random.randint(1, 5))]
-
 
 def rand_var(allow_frees: bool, var_pool: List[Symbol]) -> Symbol:
     return random.choice(var_pool) if allow_frees else S("u")
 
-
 def rand_prim(allow_frees: bool, var_pool: List[Symbol]) -> SExpr:
     return random.choice([rand_num(), rand_bool(), rand_list(), rand_var(allow_frees, var_pool)])
 
-
 def rand_op() -> Symbol:
     return random.choice([S("+"), S("*"), S("-"), S("/")])
-
 
 def rand_cmp() -> Symbol:
     return random.choice([S("="), S("<"), S(">"), S("<="), S(">=")])
@@ -420,50 +414,50 @@ def gen_expr(depth: int, allow_frees: bool, var_pool: List[Symbol]) -> SExpr:
         a = gen_expr(depth - 1, allow_frees, var_pool)
         b = gen_expr(depth - 1, allow_frees, var_pool)
         return [op_sym, a, b]
-    if kind == 3:  # comparison
+    elif kind == 3:  # comparison
         op_sym = rand_cmp()
         a = gen_expr(depth - 1, allow_frees, var_pool)
         b = gen_expr(depth - 1, allow_frees, var_pool)
         return [op_sym, a, b]
-    if kind == 4:  # if
+    elif kind == 4:  # if
         c = [rand_cmp(), gen_expr(depth - 1, allow_frees, var_pool), gen_expr(depth - 1, allow_frees, var_pool)]
         a = gen_expr(depth - 1, allow_frees, var_pool)
         b = gen_expr(depth - 1, allow_frees, var_pool)
         return [S("if"), c, a, b]
-    if kind == 5:  # lambda
+    elif kind == 5:  # lambda
         p = random.choice([S("v"), S("w"), S("u")])
         body = gen_expr(depth - 1, allow_frees, var_pool)
         return [S("fn"), [p], body]
-    if kind == 6:  # application
+    elif kind == 6:  # application
         f = gen_expr(depth - 1, allow_frees, var_pool)
         a = gen_expr(depth - 1, allow_frees, var_pool)
         return [f, a]
-    if kind == 7:  # compose
+    elif kind == 7:  # compose
         f = gen_expr(depth - 1, allow_frees, var_pool)
         g = gen_expr(depth - 1, allow_frees, var_pool)
         return [S("compose"), f, g]
-    if kind == 8:  # partial
+    elif kind == 8:  # partial
         f = gen_expr(depth - 1, allow_frees, var_pool)
         a = gen_expr(depth - 1, allow_frees, var_pool)
         return [S("partial"), f, a]
-    # map/filter/reduce
-    hof = random.choice([S("map"), S("filter"), S("reduce")])
-    f = gen_expr(depth - 1, allow_frees, var_pool)
-    lst = rand_list()
-    if "reduce" in f"{hof}" : #name
-        return [hof, f, lst, rand_prim(allow_frees, var_pool)]
-    return [hof, f, lst]
+    elif kind == 9:     # map/filter/reduce
+        hof = random.choice([S("map"), S("filter"), S("reduce")])
+        f = gen_expr(depth - 1, allow_frees, var_pool)
+        lst = rand_list()
+        if "reduce" in f"{hof}" : #name
+            return [hof, f, lst, rand_prim(allow_frees, var_pool)]
+        return [hof, f, lst]
+    else:
+        raise Exception
 
 # -----------------------------
 # Driver
 # -----------------------------
-
 def _make_var_pool(size: int) -> List[Symbol]:
     if size <= len(_DEFAULT_POOL):
         return _DEFAULT_POOL[:size]
     extra = [S(f"v{i}") for i in range(size - len(_DEFAULT_POOL))]
     return _DEFAULT_POOL + extra
-
 
 def geneval(N: int, max_depth: int, seed: int | None, allow_frees: bool, var_pool_size: int, target_free: int | None,show:bool=False)->list :
     if seed is not None:
@@ -539,6 +533,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--closed", action="store_true", help="disallow free variables in generation (forces 0 free vars)")
     p.add_argument("--var-pool", type=int, default=4, help="size of the free-variable symbol pool (x,y,z,t,v0,...) ")
     p.add_argument("--target-free", type=int, default=None, help="require exactly this many distinct free variables (best-effort)")
+    p.add_argument("--show",  action="store_true", help="show result")
     return p.parse_args()
 
 
