@@ -92,7 +92,7 @@ def is_closure(v: Any) -> bool:
 
 def pprint_sexpr(form: SExpr) -> str:
     if is_symbol(form):
-        return form.name
+        return f"{form}"
     if is_number(form) or is_bool(form):
         return str(form)
     if isinstance(form, list):
@@ -124,7 +124,7 @@ def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Sy
         return out
     if isinstance(expr, list) and expr:
         head, *tail = expr
-        if is_symbol(head) and head.name == "fn":
+        if is_symbol(head) and f"{head}" == "fn":
             params = tail[0]
             body = tail[1]
             new_bound = set(bound) | set(params)
@@ -140,7 +140,7 @@ def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Sy
 
 def simplify_nary(op_sym: Symbol, args: List[SExpr]) -> Tuple[SExpr, int]:
     """Return (simplified_form, steps_added)."""
-    name = op_sym.name
+    name = f"{op_sym}" #.name
     if name == "+":
         flat: List[SExpr] = []
         for a in args:
@@ -193,7 +193,6 @@ class EvalResult:
 def _sum_steps(*results: EvalResult) -> int:
     return sum(r.steps for r in results if isinstance(r, EvalResult))
 
-
 def eval_simplify(form: SExpr, env: Env) -> EvalResult:
     # literals
     if literal_value(form):
@@ -211,15 +210,15 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
         if not form:
             return EvalResult(None, form, False, 0)
         head, *tail = form
-
+        head_name=f"{head}"
         # (fn [params] body) — constructing a closure is not a simplification step
-        if is_symbol(head) and head.name == "fn":
+        if is_symbol(head) and head_name == "fn":
             params = tail[0]
             body = tail[1]
             return EvalResult(Closure(params, body, env), form, True, 0)
 
         # (if c a b)
-        if is_symbol(head) and head.name == "if":
+        if is_symbol(head) and head_name == "if":
             c = eval_simplify(tail[0], env)
             a = eval_simplify(tail[1], env)
             b = eval_simplify(tail[2], env)
@@ -232,17 +231,17 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
             return EvalResult(None, [S("if"), c.form, a.form, b.form], False, steps)
 
         # arithmetic
-        if is_symbol(head) and head.name in {"+", "-", "*", "/"}:
+        if is_symbol(head) and head_name in {"+", "-", "*", "/"}:
             evs = [eval_simplify(a, env) for a in tail]
             steps = _sum_steps(*evs)
             if all(e.is_value for e in evs):
                 vals = [e.value for e in evs]
                 try:
-                    if head.name == "+":
+                    if head_name == "+":
                         v = reduce(op.add, vals)
-                    elif head.name == "-":
+                    elif head_name == "-":
                         v = -vals[0] if len(vals) == 1 else reduce(op.sub, vals)
-                    elif head.name == "*":
+                    elif head_name == "*":
                         v = reduce(op.mul, vals)
                     else:
                         v = 1 / vals[0] if len(vals) == 1 else reduce(op.truediv, vals)
@@ -250,27 +249,27 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                 except Exception:
                     return EvalResult(None, [head] + vals, False, steps)
             forms = [e.form for e in evs]
-            if head.name in {"+", "*"}:
+            if head_name in {"+", "*"}:
                 simplified, add = simplify_nary(head, forms)
                 return EvalResult(None, simplified, False, steps + add)
             return EvalResult(None, [head] + forms, False, steps)
 
         # comparisons
-        if is_symbol(head) and head.name in {"<", "<=", ">", ">=", "="}:
+        if is_symbol(head) and head_name in {"<", "<=", ">", ">=", "="}:
             evs = [eval_simplify(a, env) for a in tail]
             steps = _sum_steps(*evs)
             if all(e.is_value for e in evs):
                 vals = [e.value for e in evs]
                 ops = {"<": op.lt, "<=": op.le, ">": op.gt, ">=": op.ge, "=": op.eq}
                 if len(vals) == 2:
-                    v = ops[head.name](vals[0], vals[1])
+                    v = ops[head_name](vals[0], vals[1])
                 else:
-                    v = all(ops[head.name](vals[i], vals[i + 1]) for i in range(len(vals) - 1))
+                    v = all(ops[head_name](vals[i], vals[i + 1]) for i in range(len(vals) - 1))
                 return EvalResult(v, v, True, steps + 1)
             return EvalResult(None, [head] + [e.form for e in evs], False, steps)
 
         # HOFs: compose, partial, map, filter, reduce
-        if is_symbol(head) and head.name == "compose":
+        if is_symbol(head) and head_name == "compose":
             f = eval_simplify(tail[0], env)
             g = eval_simplify(tail[1], env)
             steps = _sum_steps(f, g)
@@ -280,7 +279,7 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                 return EvalResult(Closure([x], composed_body, {}), [S("compose"), f.value, g.value], True, steps + 1)
             return EvalResult(None, [S("compose"), f.form, g.form], False, steps)
 
-        if is_symbol(head) and head.name == "partial":
+        if is_symbol(head) and head_name == "partial":
             f = eval_simplify(tail[0], env)
             args = [eval_simplify(a, env) for a in tail[1:]]
             steps = _sum_steps(f, *args)
@@ -290,7 +289,7 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                 return EvalResult(part, [S("partial"), f.form] + [a.form for a in args], True, steps + 1)
             return EvalResult(None, [S("partial"), f.form] + [a.form for a in args], False, steps)
 
-        if is_symbol(head) and head.name == "map":
+        if is_symbol(head) and head_name == "map":
             f = eval_simplify(tail[0], env)
             lst = eval_simplify(tail[1], env)
             steps = _sum_steps(f, lst)
@@ -304,7 +303,7 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                 return EvalResult(out, out, all(literal_value(x) for x in out), steps + add_steps)
             return EvalResult(None, [S("map"), f.form, lst.form], False, steps)
 
-        if is_symbol(head) and head.name == "filter":
+        if is_symbol(head) and head_name == "filter":
             f = eval_simplify(tail[0], env)
             lst = eval_simplify(tail[1], env)
             steps = _sum_steps(f, lst)
@@ -322,7 +321,7 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                 return EvalResult(out, out, True, steps + add_steps)
             return EvalResult(None, [S("filter"), f.form, lst.form], False, steps)
 
-        if is_symbol(head) and head.name == "reduce":
+        if is_symbol(head) and head_name == "reduce":
             f = eval_simplify(tail[0], env)
             lst = eval_simplify(tail[1], env)
             has_init = len(tail) > 2
@@ -451,7 +450,7 @@ def gen_expr(depth: int, allow_frees: bool, var_pool: List[Symbol]) -> SExpr:
     hof = random.choice([S("map"), S("filter"), S("reduce")])
     f = gen_expr(depth - 1, allow_frees, var_pool)
     lst = rand_list()
-    if hof.name == "reduce":
+    if "reduce" in f"{hof}" : #name
         return [hof, f, lst, rand_prim(allow_frees, var_pool)]
     return [hof, f, lst]
 
@@ -499,7 +498,7 @@ def geneval(N: int, max_depth: int, seed: int | None, allow_frees: bool, var_poo
         # If we failed to hit target, pick the closest generated in the loop (simple: keep last)
 
         res = eval_simplify(expr, base_env)
-        fv_list = sorted((s.name for s in fv_set))
+        fv_list = sorted((f"{s}" for s in fv_set))
 
         result={
             "Expr": pprint_sexpr(expr),
