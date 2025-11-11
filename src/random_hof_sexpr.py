@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Random higher‑order S‑expression generator + evaluator (partial evaluation)
 Python implementation using the **hy** library's Symbol type — with
@@ -34,6 +33,7 @@ from __future__ import annotations
 import argparse
 import operator as op
 import random
+from random import choice,randint
 from dataclasses import dataclass
 from functools import reduce
 from typing import Any, Dict, List, Set, Tuple, Union
@@ -46,73 +46,55 @@ Env = Dict[Symbol, Any]
 # -----------------------------
 # Utility predicates
 # -----------------------------
-
-def is_number(x: Any) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool)
-
-
-def is_bool(x: Any) -> bool:
-    return isinstance(x, bool)
-
-
-def is_symbol(x: Any) -> bool:
-    return isinstance(x, Symbol)
-
+is_number=lambda x:isinstance(x, (int, float)) and not isinstance(x, bool)
+is_bool=lambda x:isinstance(x, bool)
+is_symbol=lambda x:isinstance(x, Symbol)
+is_closure =lambda v:isinstance(v, Closure)
 
 def literal_value(x: Any) -> bool:
     if is_number(x) or is_bool(x):
         return True
-    if isinstance(x, list):
+    elif isinstance(x, list):
         return all(literal_value(e) for e in x)
     return False
 
-
-def S(name: str) -> Symbol:
-    return Symbol(name)
+#SExpr
+S=lambda name:Symbol(name)
 
 _DEFAULT_POOL = [S("x"), S("y"), S("z"), S("t")]
 
 # -----------------------------
-# Closures
+# Closures(環境つき式)
 # -----------------------------
-
 @dataclass
 class Closure:
     params: List[Symbol]
     body: SExpr
     env: Env
 
-
-def is_closure(v: Any) -> bool:
-    return isinstance(v, Closure)
-
 # -----------------------------
 # Pretty printer
 # -----------------------------
-
 def pprint_sexpr(form: SExpr) -> str:
     if is_symbol(form):
         return f"{form}"
-    if is_number(form) or is_bool(form):
+    elif is_number(form) or is_bool(form):
         return str(form)
-    if isinstance(form, list):
+    elif isinstance(form, list):
         return "(" + " ".join(pprint_sexpr(x) for x in form) + ")"
-    return repr(form)
+    else:
+        return str(form)
+        #return repr(form)
 
 # -----------------------------
 # Environment helpers
 # -----------------------------
-
 def env_extend(env: Env, keys: List[Symbol], vals: List[Any]) -> Env:
-    new = dict(env)
-    for k, v in zip(keys, vals):
-        new[k] = v
-    return new
+    return  dict(env).update({k:v for k,v in zip(keys, vals)})
 
 # -----------------------------
 # Free-variable analysis
 # -----------------------------
-
 def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Symbol]:
     """Collect symbols that are *not* bound by lambdas and not present in env."""
     if bound is None:
@@ -125,8 +107,7 @@ def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Sy
     elif isinstance(expr, list) and expr:
         head, *tail = expr
         if is_symbol(head) and f"{head}" == "fn":
-            params = tail[0]
-            body = tail[1]
+            params ,body= tail[:2]
             new_bound = set(bound) | set(params)
             return free_vars(body, env, new_bound)
         # generic: union across subforms
@@ -137,6 +118,7 @@ def free_vars(expr: SExpr, env: Env, bound: Set[Symbol] | None = None) -> Set[Sy
 # -----------------------------
 # Simplifiers
 # -----------------------------
+#2項演算
 def simplify_nary(op_sym: Symbol, args: List[SExpr]) -> Tuple[SExpr, int]:
     """Return (simplified_form, steps_added)."""
     name = f"{op_sym}"
@@ -191,9 +173,9 @@ class EvalResult:
 def _sum_steps(*results: EvalResult) -> int:
     return sum(r.steps for r in results if isinstance(r, EvalResult))
 
-def FailResult(sexp,steps)-> EvalResult:
-    return EvalResult(None,sexp,False,steps)
+RemainResult=lambda sexp,steps :EvalResult(None,sexp,False,steps)
 
+### (partial) simplify S-expressions
 def eval_simplify(form: SExpr, env: Env) -> EvalResult:
     # literals
     if literal_value(form):
@@ -203,33 +185,30 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
         if form in env:
             v = env[form]
             return EvalResult(v, v, True, 0)
-        return EvalResult(None, form, False, 0)
+        return RemainResult(form,0)
     # lists
     elif isinstance(form, list):
         if not form:
-            return EvalResult(None, form, False, 0)
+            return RemainResult(form,0)    
         head, *tail = form
         head_name=f"{head}"
         # (fn [params] body) — constructing a closure is not a simplification step
         if is_symbol(head):
             if(head_name == "fn"):
-                params = tail[0]
-                body = tail[1]
+                params,body = tail[:2]
                 return EvalResult(Closure(params, body, env), form, True, 0)
             # (if c a b)
             elif head_name == "if":
-                c = eval_simplify(tail[0], env)
-                a = eval_simplify(tail[1], env)
-                b = eval_simplify(tail[2], env)
+                c,a,b=[eval_simplify(t, env) for t in tail[:3]]
                 steps = _sum_steps(c, a, b)
                 if c.is_value:
                     # one step for folding the conditional
                     if c.value:
-                        return EvalResult(a.value, a.form, a.is_value, steps + 1)
+                        return EvalResult(a.value, a.form, a.is_value, steps+1)
                     else:                            
-                        return EvalResult(b.value, b.form, b.is_value, steps + 1)
+                        return EvalResult(b.value, b.form, b.is_value, steps+1)
                 else:
-                    return EvalResult(None, [S("if"), c.form, a.form, b.form], False, steps)
+                    return RemainResult([S("if"), c.form, a.form, b.form], steps)
             # arithmetic
             elif head_name in {"+", "-", "*", "/"}:
                 evs = [eval_simplify(a, env) for a in tail]
@@ -243,18 +222,18 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                             v = -vals[0] if len(vals) == 1 else reduce(op.sub, vals)
                         elif head_name == "*":
                             v = reduce(op.mul, vals)
-                        else:
+                        else:# /
                             v = 1 / vals[0] if len(vals) == 1 else reduce(op.truediv, vals)
                         return EvalResult(v, v, True, steps + 1)  # collapse counts as 1 step
                     except Exception:
-                        return EvalResult(None, [head] + vals, False, steps)
+                        return RemainResult([head] + vals, steps)
                 forms = [e.form for e in evs]
                 if head_name in {"+", "*"}:
                     simplified, add = simplify_nary(head, forms)
-                    return EvalResult(None, simplified, False, steps + add)
-                return EvalResult(None, [head] + forms, False, steps)
+                    return RemainResult(simplified, steps + add)
+                return RemainResult([head] + forms, steps)
             # comparisons
-            elif  head_name in {"<", "<=", ">", ">=", "="}:# and (not isinstance(head,list)):
+            elif  head_name in {"<", "<=", ">", ">=", "="}:
                 #'list' and 'float
                 evs = [eval_simplify(a, env) for a in tail]
                 steps = _sum_steps(*evs)
@@ -269,20 +248,19 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                             v = all(comp(vals[i], vals[i+1]) for i in range(len(vals) - 1))
                         return EvalResult(v, v, True, steps + 1)
                     except:                
-                        return EvalResult(None, [head] + [e.form for e in evs], False, steps)
+                        return RemainResult([head] + [e.form for e in evs], steps)
                 else:
-                    return EvalResult(None, [head] + [e.form for e in evs], False, steps)
+                    return RemainResult([head] + [e.form for e in evs], steps)
             # HOFs: compose, partial, map, filter, reduce
             elif head_name == "compose":
-                f = eval_simplify(tail[0], env)
-                g = eval_simplify(tail[1], env)
+                f,g= [eval_simplify(t, env) for t in tail[:2]]
                 steps = _sum_steps(f, g)
                 if f.is_value and g.is_value and is_closure(f.value) and is_closure(g.value):
                     x = S("x")
                     composed_body = [f.value, [g.value, x]]
-                    return EvalResult(Closure([x], composed_body, {}), [S("compose"), f.value, g.value], True, steps + 1)
+                    return EvalResult(Closure([x], composed_body, {}), [S("compose"), f.value, g.value], True, steps+1)
                 else:
-                    return EvalResult(None, [S("compose"), f.form, g.form], False, steps)
+                    return RemainResult([S("compose"), f.form, g.form], steps)
             elif  head_name == "partial":
                 f = eval_simplify(tail[0], env)
                 args = [eval_simplify(a, env) for a in tail[1:]]
@@ -291,10 +269,9 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                     known = [a.value if a.is_value else a.form for a in args]
                     part = {"type": "partial", "fn": f.value, "known": known}
                     return EvalResult(part, [S("partial"), f.form] + [a.form for a in args], True, steps + 1)
-                return EvalResult(None, [S("partial"), f.form] + [a.form for a in args], False, steps)
+                return RemainResult([S("partial"), f.form] + [a.form for a in args], steps)
             elif head_name == "map":
-                f = eval_simplify(tail[0], env)
-                lst = eval_simplify(tail[1], env)
+                f,lst = [eval_simplify(t, env) for t in tail[:2]]
                 steps = _sum_steps(f, lst)
                 if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list):
                     out: List[Any] = []
@@ -304,10 +281,9 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                         out.append(ap.value if ap.is_value else ap.form)
                         add_steps += ap.steps
                     return EvalResult(out, out, all(literal_value(x) for x in out), steps + add_steps)
-                return EvalResult(None, [S("map"), f.form, lst.form], False, steps)
+                return RemainResult([S("map"), f.form, lst.form],steps)
             elif  head_name == "filter":
-                f = eval_simplify(tail[0], env)
-                lst = eval_simplify(tail[1], env)
+                f,lst = [eval_simplify(t, env) for t in tail[:2]]
                 steps = _sum_steps(f, lst)
                 if f.is_value and lst.is_value and is_closure(f.value) and isinstance(lst.value, list):
                     out: List[Any] = []
@@ -322,10 +298,9 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                             out.append(v)
                     return EvalResult(out, out, True, steps + add_steps)
                 else:
-                    return EvalResult(None, [S("filter"), f.form, lst.form], False, steps)
+                    return RemainResult([S("filter"), f.form, lst.form],steps)
             elif  head_name == "reduce":
-                f = eval_simplify(tail[0], env)
-                lst = eval_simplify(tail[1], env)
+                f,lst = [eval_simplify(t, env) for t in tail[:2]]
                 has_init = len(tail) > 2
                 init = eval_simplify(tail[2], env) if has_init else None
                 steps = _sum_steps(f, lst, *( [init] if init else [] ))
@@ -336,7 +311,7 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                         rest = lst.value
                     else:
                         if not lst.value:
-                            return EvalResult(None, [S("reduce"), f.form, lst.form], False, steps)
+                            return RemainResult([S("reduce"), f.form, lst.form],steps)
                         cur = lst.value[0]
                         rest = lst.value[1:]
                     for v in rest:
@@ -345,7 +320,7 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                         add_steps += ap.steps + 1  # each fold counts at least one step
                     return EvalResult(cur, cur, literal_value(cur), steps + add_steps)
                 forms = [f.form, lst.form] + ([init.form] if has_init and init else [])
-                return EvalResult(None, [S("reduce")] + forms, False, steps)
+                return RemainResult( [S("reduce")] + forms, steps)
             else:
             # Function application: (f a b ...)
                 fun = eval_simplify(head, env)
@@ -353,7 +328,6 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                 steps = _sum_steps(fun, *argres)
                 arg_vals = [e.value for e in argres]
                 arg_forms = [e.form for e in argres]
-
                 # calling a closure (beta‑reduction)
                 if fun.is_value:
                     if is_closure(fun.value):
@@ -370,77 +344,51 @@ def eval_simplify(form: SExpr, env: Env) -> EvalResult:
                     # calling a partial
                     elif isinstance(fun.value, dict) and fun.value.get("type") == "partial":
                         base: Closure = fun.value["fn"]
-                        known = fun.value["known"]
-                        merged = known + arg_vals
-                        res = eval_simplify([base] + merged, env)
+                        merged = [base] + fun.value["known"] + arg_vals
+                        res = eval_simplify(merged, env)
                         return EvalResult(res.value, res.form, res.is_value, steps + res.steps + 1)
-
                 # not enough info — return simplified application
-                return EvalResult(None, [fun.form] + arg_forms, False, steps)
+                return RemainResult([fun.form] + arg_forms, steps)
     # fallback
-    return FailResult(form,0)
+    return RemainResult(form,0)
 
 # -----------------------------
 # Random expression generator
 # -----------------------------
-def rand_num() -> Union[int, float]:
-    return random.randint(-5, 5) if random.random() < 0.5 else random.randint(-9, 9) / 2.0
-
-def rand_bool() -> bool:
-    return random.choice([True, False])
-
-def rand_list() -> List[SExpr]:
-    return [rand_num() for _ in range(random.randint(1, 5))]
-
-def rand_var(allow_frees: bool, var_pool: List[Symbol]) -> Symbol:
-    return random.choice(var_pool) if allow_frees else S("u")
-
-def rand_prim(allow_frees: bool, var_pool: List[Symbol]) -> SExpr:
-    return random.choice([rand_num(), rand_bool(), rand_list(), rand_var(allow_frees, var_pool)])
-
-def rand_op() -> Symbol:
-    return random.choice([S("+"), S("*"), S("-"), S("/")])
-
-def rand_cmp() -> Symbol:
-    return random.choice([S("="), S("<"), S(">"), S("<="), S(">=")])
-
+rand_num =lambda :randint(-5, 5) if random.random() < 0.5 else randint(-9, 9) / 2.0
+rand_bool=lambda:choice([True, False])
+rand_list=lambda:[rand_num() for _ in range(randint(1, 5))]
+#allow_frees:bool,var_pool:list[Symbol] ->SExpr
+rand_var =lambda allow_frees,var_pool:choice(var_pool) if allow_frees else S("u")
+rand_prim=lambda allow_frees,var_pool:choice([rand_num(), rand_bool(), rand_list(), rand_var(allow_frees, var_pool)])
+#S:Symbol
+rand_op=lambda :choice([S("+"), S("*"), S("-"), S("/")])
+rand_cmp=lambda :choice([S("="), S("<"), S(">"), S("<="), S(">=")])
 
 def gen_expr(depth: int, allow_frees: bool, var_pool: List[Symbol]) -> SExpr:
     if depth <= 0:
         return rand_prim(allow_frees, var_pool)
-    kind = random.randint(0, 9)
+    kind = randint(0, 9)
+    a,b = [ gen_expr(depth - 1, allow_frees, var_pool) for _ in range(2)]
     if kind <= 2:  # arithmetic
         op_sym = rand_op()
-        a = gen_expr(depth - 1, allow_frees, var_pool)
-        b = gen_expr(depth - 1, allow_frees, var_pool)
         return [op_sym, a, b]
     elif kind == 3:  # comparison
         op_sym = rand_cmp()
-        a = gen_expr(depth - 1, allow_frees, var_pool)
-        b = gen_expr(depth - 1, allow_frees, var_pool)
         return [op_sym, a, b]
     elif kind == 4:  # if
         c = [rand_cmp(), gen_expr(depth - 1, allow_frees, var_pool), gen_expr(depth - 1, allow_frees, var_pool)]
-        a = gen_expr(depth - 1, allow_frees, var_pool)
-        b = gen_expr(depth - 1, allow_frees, var_pool)
         return [S("if"), c, a, b]
     elif kind == 5:  # lambda
         p = random.choice([S("v"), S("w"), S("u")])
-        body = gen_expr(depth - 1, allow_frees, var_pool)
-        return [S("fn"), [p], body]
+        return [S("fn"), [p], a]
     elif kind == 6:  # application
-        f = gen_expr(depth - 1, allow_frees, var_pool)
-        a = gen_expr(depth - 1, allow_frees, var_pool)
-        return [f, a]
+        return [a, b]
     elif kind == 7:  # compose
-        f = gen_expr(depth - 1, allow_frees, var_pool)
-        g = gen_expr(depth - 1, allow_frees, var_pool)
-        return [S("compose"), f, g]
+        return [S("compose"), a, b]
     elif kind == 8:  # partial
-        f = gen_expr(depth - 1, allow_frees, var_pool)
-        a = gen_expr(depth - 1, allow_frees, var_pool)
-        return [S("partial"), f, a]
-    elif kind == 9:     # map/filter/reduce
+        return [S("partial"), a, b]
+    elif kind == 9:  # map/filter/reduce
         hof = random.choice([S("map"), S("filter"), S("reduce")])
         f = gen_expr(depth - 1, allow_frees, var_pool)
         lst = rand_list()
@@ -499,31 +447,42 @@ def geneval(N: int, max_depth: int, seed: int | None, allow_frees: bool, var_poo
             "free_vars":fv_set,
             "fv_list":fv_list,
             "pool_size":len(var_pool),
-            "steps":res.steps
+            "steps":res.steps,
         }
 
         if target_free is not None:
             result["attempts"]=attempts
         else:
-            result["attempts"]= -1
+            result["attempts"]= 0
 
         if res.is_value:
             result["value"]=res.value
+            result["isvalue"]=True
         else:
             result["value"]=pprint_sexpr(res.form)
+            result["isvalue"]=False
 
         sexp_eval.append(result)
-        if(show):
-            print("Expr:", pprint_sexpr(expr))
-            print(f"free_vars={len(fv_set)} {fv_list}; pool_size={len(var_pool)}" + (f"; attempts={attempts}" if target_free is not None else ""))
-            if res.is_value:
-                print(f"=> {res.value}  (steps={res.steps})")
-            else:
-                print(f"⇝ {pprint_sexpr(res.form)}  (steps={res.steps})")
-            print()
 
+        if(show):
+            print_simple(result)
+            print_result(result)
     return sexp_eval
 
+def print_simple(result):
+        fv_set=result["free_vars"]
+        pool_size=result["pool_size"]
+        attempts=result["attempts"]
+        steps=result["steps"]
+        print(f"free_vars={len(fv_set)}, pool_size={pool_size} ; attempts={attempts},steps={steps}")
+
+def print_result(result):
+    print("Expr:", pprint_sexpr(result["Expr"]))
+    if(result["isvalue"]):
+        print(f"=> ",result["value"])
+    else:
+        print(f"⇝ ",result["value"])
+    print_simple(result)
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Random higher‑order S‑expr generator + partial evaluator (Python + hy models, with step + free-var counting)")
@@ -539,4 +498,5 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     ns = parse_args()
-    geneval(ns.n, ns.max_depth, ns.seed, allow_frees=not ns.closed, var_pool_size=ns.var_pool, target_free=ns.target_free)
+    geneval(ns.n, ns.max_depth, ns.seed, allow_frees=not ns.closed, var_pool_size=ns.var_pool, target_free=ns.target_free,
+            show=ns.show)
