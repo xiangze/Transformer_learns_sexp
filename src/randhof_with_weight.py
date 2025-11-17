@@ -42,7 +42,8 @@ import random_hof_sexpr as hof
 #  (len list)->値
 
 # 値・bool・変数・演算子など ------------------------------
-VALUES = [str(i) for i in range(7)]          # 0..6
+MOD=7
+VALUES = [str(i) for i in range(MOD)]          # 0..6
 BOOLS = ["True", "False"]
 BASE_VARS = ["x", "y", "z", "t"]
 OPS = ["+", "-", "*", "/"]
@@ -369,7 +370,6 @@ def tokenize(s: str):
     tokens = TOKEN_REGEX.findall(s)
     return tokens
 
-
 def parse(tokens):
     """Lisp 風 S 式 + [ ... ] リストを AST に変換"""
     pos = 0
@@ -530,7 +530,6 @@ def _eval_fn(expr, env):
     # クロージャ構築を 1 ステップとカウント
     return closure, 1
 
-
 def _eval_op(op, args, env):
     steps = 0
     vals = []
@@ -542,30 +541,28 @@ def _eval_op(op, args, env):
     if all(isinstance(v, int) for v in vals) and vals:
         steps += 1
         if op == "+":
-            return sum(vals), steps
-        if op == "-":
+            return sum(vals)%MOD, steps
+        elif op == "-":
             if len(vals) == 1:
-                return -vals[0], steps
+                return -vals[0]%MOD, steps
             res = vals[0]
             for x in vals[1:]:
                 res -= x
-            return res, steps
-        if op == "*":
+            return res%MOD, steps
+        elif op == "*":
             res = 1
             for x in vals:
                 res *= x
-            return res, steps
-        if op == "/":
+            return res%MOD, steps
+        elif op == "/":
             res = vals[0]
             for x in vals[1:]:
-                if x == 0:
-                    # 0 で割れない → これ以上簡約しない
+                if x == 0:# 0 で割れない → これ以上簡約しない
                     return [op] + vals, steps
                 res = res / x
-            return res, steps
+            return res%MOD, steps
     # 完全には簡約できない場合は部分式として残す
     return [op] + vals, steps
-
 
 def _eval_cmp(op, args, env):
     steps = 0
@@ -879,8 +876,7 @@ def reduce_and_show(expr_str: str):
     print("ステップ数:", steps)
     print("-" * 60)
 
-def eval_demo():
-    # 簡単なデモ
+def eval_demo():  # 簡単なデモ
     samples = [
         "(+ 1 2 3)",
         "(if True (+ 1 2) 5)",
@@ -894,20 +890,30 @@ def eval_demo():
     for s in samples:
         reduce_and_show(s)
 
-def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int", seed=None,filename="sexppair.txt",show=False):
+def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int", seed=None):
+    if seed is not None:
+        random.seed(seed)
+    result=[]
+    for _ in range(num_exprs):
+        expr_str, kind = random_typed_sexp(max_depth=max_depth, want_kind=want_kind)
+        value, steps=totaleval(expr_str)
+        result.append((expr_str,sexpr_to_str(value),steps))
+    return result
+
+def gen_and_eval_print(num_exprs=5, max_depth=4, want_kind="int", seed=None,filename="sexppair.txt",show=False):
     if seed is not None:
         random.seed(seed)
     with open(filename, "w") as f:
         for _ in range(num_exprs):
             expr_str, kind = random_typed_sexp(max_depth=max_depth, want_kind=want_kind)
             value, steps=totaleval(expr_str)
-            print(f"{expr_str}, {sexpr_to_str(value)}, {steps}", file=f)
             if(show):
                 print("Generated expr:", expr_str)
                 print("Evaluated to   :", sexpr_to_str(value))
                 print("Steps taken    :", steps)
                 print("-" * 40 )
-                
+            else:
+                print(f"{expr_str}, {sexpr_to_str(value)}, {steps}", file=f)
 import argparse
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Random higher‑order S‑expr generator + partial evaluator (Python + hy models, with step + free‑var counting + list forms)")

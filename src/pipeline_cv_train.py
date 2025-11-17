@@ -5,18 +5,19 @@
            または Recursive_Transformere.py（--model recursive）
   学習後に matrix_visualizer.py があればAttention行列を保存（--visualize）
 """
+from __future__ import annotations
 import argparse
 import json
 import os
 import random
 import time
 from pathlib import Path
-from __future__ import annotations
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import util
 import generate_sexp_with_variable as gen_mod
 import evallisp as eval_mod
 import sexp2dick as s2d
+import mysexp2dick as mys2d
 import matrix_visualizer as vis
 import step_counter
 import torch
@@ -24,7 +25,7 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
 import util 
-import ramdom_hof_sexpr as hof
+import randhof_with_weight as hof
 
 # ------------------------------
 # Data pipeline components
@@ -112,14 +113,14 @@ def pipeline(args,out_root="result", seed: int =-1):
         args.n_sexps=10
     print("[1/5] Generating S-expressions...")
     t0 = time.time()
-    if(args.use_hof):
-        if seed is not None:
-            random.seed(seed)
-        results=hof.geneval(args.n_sexp,args.max_depth,seed=seed,allow_frees=True,var_pool_size=100,target_free=args.max_bind)
-        ss=[r["value"] for r in results]
-        steps=[r["steps"] for r in results]
-        S=[r["Expr"] for r in results]
-    else:
+    if(args.sexpfilename!=""):
+        with open(args.sexpfilename,"r",encoding="utf-8") as f:
+            S=[ line.strip() for line in f.readlines()]
+        ss=[r[1] for r in S]
+        steps=[r[2] for r in  S]
+        S=[r[0] for r in  S]
+        print(f"  loaded: {len(S)} samples in {time.time()-t0:.2f}s")
+    elif(args.use_gensexp):
         S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
         print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
         print(S[0])
@@ -127,6 +128,12 @@ def pipeline(args,out_root="result", seed: int =-1):
         t0 = time.time()
         ss, steps = eval_S(S, args.use_gen,args.log_eval_steps)
         print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
+    else:
+        print("[2/5] Evaluating Higher Order S-expressions...")
+        results=hof.gen_and_eval(args.n_sexp,args.max_depth,seed=seed)
+        ss=[r[1] for r in S]
+        steps=[r[2] for r in  S]
+        S=[r[0] for r in  S]
 
     if args.log_eval_steps and steps is not None:
         step_log_path = out_root + "/eval_steps.csv"
@@ -139,13 +146,15 @@ def pipeline(args,out_root="result", seed: int =-1):
     print("[3/5] Converting to Dyck language...")
     t0 = time.time()
     if(args.use_myconverter):
-        Dyks, dlabels = s2d.sexp_str_to_dyck_and_labels(S) 
+         Dyks  = mys2d.sexp_str_to_dyck_and_labels(S) 
+         ssDyks= mys2d.sexp_str_to_dyck_and_labels(ss) 
     else:
-        Dyks, dlabels = gen_mod.sexp_str_to_dyck(S)
+         Dyks  = s2d.sexp_str_to_dyck_and_labels(S) 
+         ssDyks= s2d.sexp_str_to_dyck_and_labels(ss) 
 
-    pairs = make_pairs(Dyks, dlabels)
+    #pairs = make_pairs(Dyks, dlabels)
+    pairs = make_pairs(Dyks, ssDyks)
     print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
-
 
     print("[4/5] K-fold training/evaluation...")
     folds = kfold_split(len(pairs), args.kfold, args.seed)
@@ -160,7 +169,6 @@ def pipeline(args,out_root="result", seed: int =-1):
 
         print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
     
-
         ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
         ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
         print("[4/5] token to Tensor...")
@@ -187,15 +195,14 @@ if __name__=="__main__":
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
-    parser.add_argument("--log_eval_steps", action="store_true",
-                        help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
+    parser.add_argument("--log_eval_steps", action="store_true",  help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
     parser.add_argument("--visualize", action="store_true",
                         help="学習後にmatrix_visualizerでAttention Matrixを保存 (可能な場合)")
-    parser.add_argument("--use_gen", action="store_true",
-                        help="S式評価にhyの部分評価を使う")
+    parser.add_argument("--use_gen", action="store_true",  help="S式評価にhyの部分評価を使う")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--use_myconverter", action="store_true")
-    parser.add_argument("--use_hof", action="store_true",help="use spesific Higher Order Function random generator")
+    parser.add_argument("--use_gensexp", action="store_true",help="use old sexp generator")
+    parser.add_argument("--sexpfilename", type=str, default="",help="use sexp from file")
     args = parser.parse_args()
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
