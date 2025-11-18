@@ -3,12 +3,14 @@
 ## ファイル構成と使い方
 
 ### 学習と評価
-S式データ生成、S式評価、学習全機能が入ったもの
+- S式データ生成
+- S式評価
+- Dyck言語への変換
+  - Dyck言語のベクトル化
+- Transformerでの学習、評価
 
-```
-python3 train_allinone.py
-```
-より一般化された条件用
+の
+全機能が入ったもの
 ```
   PYTHONPATH=/path/to/Transformer_learns_sexp/src \
   python pipeline_cv_train.py \
@@ -23,6 +25,12 @@ python3 train_allinone.py
       --visualize
 ```
 
+特定条件
+```
+python3 train_allinone.py
+```
+
+
 ### モデル
 - transformer_dick_fixed_embed.py  Dyck言語を入力とするTransformer
 - Recursive_Transformere.py RNN風Transformer
@@ -34,9 +42,12 @@ python3 train_allinone.py
 - evallist.py S式の評価
 - step_counter.py S式の評価ステップ数計測
 - sexp2dick.py S式からDyck言語への変換
+- peval_pure.py S式の部分的評価
+- random_hof_sexpr.py 高階関数生成
+
 ### その他
 - train_eval.py 学習、評価の本体
-- util.py　
+- util.py　便利関数
 
 ## 先行研究
 ### Dyck_k decoderの構成
@@ -57,3 +68,8 @@ python3 train_allinone.py
 ## S式、Dyck言語生成
 
 https://github.com/xiangze/Transformer_learns_sexp/tree/master/src　のgenerate_sexp_with_variable.pyでS式のリストのリストを生成し、それをSとしevallist.pyでSの各要素を評価しssに代入、sexp2dick.pyでS,ssの各要素をS式からDyck言語への変換してD,ddとしてそれらをデータ、ラベルの組としてcross validationでオプションで切り替えたtransformer_dick_fixed_embed.pyまたはRecursive_Transformere.py RNN風Transformerで学習、評価し、matrix_visualizer.pyを使って学習後のAttention Matrixを可視化するスクリプトを書いてください。S式の数、各S式自由変数の数、Transformerの種類はオプションで切り替えられるようにしてください。またオプションでevallist.pyでSの各要素を評価終了までに要したステップ数をログとして保存してください
+
+ニューラルネット(DNN)の学習ではSGDに比べは徐々にランダムウォークの分散を減らしていくシミュレーテッドアニーリング的な方法は性能が北内と言われています。またDNNでは局所最適解が学習によって大域最適解に到達するのではないかとも言われています。一方スピングラスモデルでは無数の局所最適解が存在し、温度によって各ポテンシャルの状態の分配関数における割合が変化していくと言われています。このDNNとスピングラスモデルの局所解の性質の違いがシミュレーテッドアニーリングの有効性の違いに関係しているのでしょうか？あるいはシミュレーテッドアニーリングに対する挙動の違いから多数の局所解の性質の説明ができるのでしょうか。
+また拡散モデルの生成に温度とポテンシャルを徐々に下げていくシミュレーテッドアニーリング的な方法が使われることも勘案して既存研究の結果に基づいて説明してみてください。
+
+Pytorchでバッチサイズ×学習率、ラベルノイズ比率、SWA/SGDRの有無の組み合わせをを掃引してResNet18,Resnet50その他Pytrochの学習済みネットワークに対してテスト誤差、平坦度の計算結果を出力、記録するスクリプトを書いてください
