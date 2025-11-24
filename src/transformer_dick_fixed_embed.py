@@ -282,7 +282,6 @@ def collate(batch):
 # 5) Transformer 回帰モデル
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
 # =========================================================
-
 class TransformerRegressor(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 256, nhead: int = 8,
                  num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1):
@@ -304,18 +303,28 @@ class TransformerRegressor(nn.Module):
             nn.Linear(d_model, 1)
         )
 
-    def forward(self, input_ids: torch.Tensor, num_vals: torch.Tensor,
-                num_mask: torch.Tensor, attn_mask: torch.Tensor):
+    def forward(self,
+        input_ids: torch.Tensor,
+        num_vals: torch.Tensor | None = None,
+        num_mask: torch.Tensor | None = None,
+        attn_mask: torch.Tensor | None = None, ):
         B, L = input_ids.shape
         pos_ids = torch.arange(L, device=input_ids.device).unsqueeze(0).expand(B, L)
         x = self.tok(input_ids) + self.pos(pos_ids)
 
         # numeric embedding（非数値位置は0）
-        num_embed = self.num_proj(num_vals.unsqueeze(-1))
-        num_embed = num_embed * num_mask.unsqueeze(-1).float()
-        x = x + num_embed
+        if (num_vals is not None) and (num_mask is not None):
+            num_embed = self.num_proj(num_vals.unsqueeze(-1))
+            num_embed = num_embed * num_mask.unsqueeze(-1).float()
+            x = x + num_embed
+        # --- attn_mask も省略可能にしたい場合 ---
+        if attn_mask is None:
+            # 例: pad_id をクラス変数で持っておく
+            # self.pad_id を __init__ で受け取るなど
+            key_padding_mask = (input_ids == self.pad_id)
+        else:
+            key_padding_mask = (attn_mask == 0) # True=padding
 
-        key_padding_mask = (attn_mask == 0)  # True=padding
         h = self.enc(x, src_key_padding_mask=key_padding_mask)
         cls = h[:, 0, :]  # 先頭が <CLS>
         yhat = self.head(cls)  # (B,1)
