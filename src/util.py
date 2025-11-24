@@ -66,6 +66,7 @@ def eval_core(device,model,val_loader,criterion,use_amp=True):
 def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True):
     best_val_acc = 0.0
     last_val_acc = 0.0
+    model.to(device)
     for epoch in range(1, epochs + 1):
         print(f"Epoch {epoch}/{epochs}")
         train_loss,train_acc=train_core(device,model,train_loader,optimizer,criterion,use_amp)

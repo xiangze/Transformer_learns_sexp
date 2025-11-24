@@ -191,10 +191,8 @@ def pipeline(args,
         print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
         if(not args.use_s2d):
             ## "transpose"
-            ds_train = [ tensor([p[0]for p in train_pairs]),
-                         tensor([p[1]for p in train_pairs]) ]
-            ds_val   =  [ tensor([p[0]for p in val_pairs]),
-                         tensor([p[1]for p in val_pairs]) ]
+            ds_train = [np.array(list(t)) for t in zip(*train_pairs)]
+            ds_val   = [np.array(list(t)) for t in zip(*val_pairs)]
         else:
             ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
             ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
