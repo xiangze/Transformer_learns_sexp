@@ -1,34 +1,12 @@
 from __future__ import annotations
 import torch
 from typing import Any, List, Tuple, Optional
-from torch.utils.data import Dataset, DataLoader
 
-def make_train_eval_loader(device,name,batch_size, tfm_train,tfm_eval, custom_num_classes=None,num_workers=1,
-                           data_root="data/", download=False):
-    train_ds, n_tr = _make_dataset(name, data_root, train=True,  download=download, tfm=tfm_train)
-    val_ds,   n_va = _make_dataset(name, data_root, train=False, download=download, tfm=tfm_eval)
-    pin = (device == "cuda")
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
-    val_loader   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
-
-    num_classes = custom_num_classes if custom_num_classes is not None else max(n_tr, n_va)
-    return train_loader,val_loader,num_classes
-
-def smart_getattr(mod, candidates: Sequence[str]) -> Optional[Callable]:
-    """Return first existing attribute (callable) by trying candidates in order."""
-    for name in candidates:
-        if hasattr(mod, name):
-            fn = getattr(mod, name)
-            if callable(fn):
-                return fn
-    return None
-
-def fail_with_attributes(mod, purpose: str) -> None:
-    attrs = [a for a in dir(mod) if not a.startswith("_")]
-    raise AttributeError(
-        f"Cannot find a suitable function for {purpose} in module {mod.__name__}.\n"
-        f"Available attributes:\n- " + "\n- ".join(attrs)
-    )
+def _top1_accuracy(logits: torch.Tensor, targets: torch.Tensor) -> float:
+    """Compute top-1 accuracy."""
+    _, preds = torch.max(logits, dim=1)
+    correct = (preds == targets).sum().item()
+    return correct / targets.size(0)
 
 def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler=None):
         model.train()
@@ -85,11 +63,12 @@ def eval_core(device,model,val_loader,criterion,use_amp=True):
         
         return val_loss,last_val_acc
 
-def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,scaler=None,eval=True):
+def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True):
     best_val_acc = 0.0
     last_val_acc = 0.0
     for epoch in range(1, epochs + 1):
-        train_loss,train_acc=train_core(device,model,train_loader,optimizer,criterion,use_amp,scaler)
+        print(f"Epoch {epoch}/{epochs}")
+        train_loss,train_acc=train_core(device,model,train_loader,optimizer,criterion,use_amp)
         if(eval):
             val_loss,last_val_acc=eval_core(device,model,val_loader,criterion,use_amp)
 
