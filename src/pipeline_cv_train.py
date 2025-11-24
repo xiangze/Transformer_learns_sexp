@@ -21,12 +21,14 @@ import mysexp2dick as mys2d
 import matrix_visualizer as vis
 import step_counter
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader,TensorDataset
 import torch.nn as nn
 import torch.optim as optim
+from torch import tensor
 import util 
 import randhof_with_weight as hof
-
+import numpy as np
+#import attentiononly as atn
 # ------------------------------
 # Data pipeline components
 # ------------------------------
@@ -62,8 +64,8 @@ def kfold_split(n: int, k: int, seed: int) -> List[Tuple[List[int], List[int]]]:
     return folds
 
 def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    #os.makedirs(path, exist_ok=True)
+    with open(path,"w", encoding="utf-8") as f:
         for x, y in pairs:
             f.write(json.dumps({"input": x, "label": y}, ensure_ascii=False) + "\n")
 
@@ -73,53 +75,49 @@ def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
 import transformer_dick_fixed_embed as fixed
 import Recursive_Ttansformer as recursive
 def train_one_fold(model_kind: str,
-                   ds_train,
-                   ds_val,
-                   train_pairs: List[Tuple[str, str]],
-                   val_pairs: List[Tuple[str, str]],
-                   out_dir: Path,
-                   epochs: int,
-                   batch_size: int,
-                   seed: int) -> Optional[Any]:
+                   ds_train, ds_val,
+                   epochs: int, batch_size: int, vocab_size: int,
+                   params: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096}
+                   ) -> Optional[Any]:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
     pin = (device == "cuda")
     
     if model_kind == "fixed":
-        model=fixed.TransformerRegressor()
+        model=fixed.TransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"])
     elif model_kind == "recursive":
-        model=recursive.SharedTransformerRegressor()
+        model=recursive.SharedTransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"])
+    # elif model_kind == "attentiononly":
+    #     model=atn.AttentionOnlyRegressor(d_model=params["d_model"], n_heads=params["nhead"], num_layers=params["num_layer"], dropout=0.1)
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
+    
+    ds_train = TensorDataset( tensor(ds_train[0]), tensor(ds_train[1]) )
+    ds_val   = TensorDataset( tensor(ds_val[0]), tensor(ds_val[1]) )
 
     num_workers=1
-    train_loader = DataLoader(ds_train[:], batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
-    val_loader   = DataLoader(ds_val[:], batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
+    train_loader = DataLoader(ds_train, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
+    val_loader   = DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
 
-    criterion=nn.MSEloss() #soft
+    criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
-    best_val_acc,last_val_acc=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=True,scaler=scaler,eval=True)
+    best_val_acc,last_val_acc=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=True,eval=True)
     
-    # Serialize jsonl files and pass paths through environment variables.
-    tmp_train = out_dir+ "/train.jsonl"
-    tmp_val = out_dir+  "/val.jsonl"
-    save_pairs_jsonl(train_pairs, tmp_train)
-    save_pairs_jsonl(val_pairs, tmp_val)
     return best_val_acc,last_val_acc
 
-def pipeline(args,out_root="result", seed: int =-1):
-    if(args.debug):
-        args.n_sexps=10
-    print("[1/5] Generating S-expressions...")
+def genSexps(args):
     t0 = time.time()
     if(args.sexpfilename!=""):
         with open(args.sexpfilename,"r",encoding="utf-8") as f:
-            S=[ line.strip() for line in f.readlines()]
-        ss=[r[1] for r in S]
-        steps=[r[2] for r in  S]
-        S=[r[0] for r in  S]
+            ls=[ line.strip() for line in f.readlines()]
+        ls=[k.strip().split(",") for k in ls]
+        S=[r[0] for r in  ls]
+        ss=[r[1] for r in ls]
+        steps=[r[2] for r in  ls]
         print(f"  loaded: {len(S)} samples in {time.time()-t0:.2f}s")
+        if(args.max_data_num>0):
+            S=S[:min(args.max_data_num,len(S))]
     elif(args.use_gensexp):
         S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
         print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
@@ -130,7 +128,7 @@ def pipeline(args,out_root="result", seed: int =-1):
         print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
-        results=hof.gen_and_eval(args.n_sexp,args.max_depth,seed=seed)
+        S=hof.gen_and_eval(args.n_sexp,args.max_depth,seed=seed)
         ss=[r[1] for r in S]
         steps=[r[2] for r in  S]
         S=[r[0] for r in  S]
@@ -142,40 +140,70 @@ def pipeline(args,out_root="result", seed: int =-1):
             for i, st in enumerate(steps):
                 f.write(f"{i},{st}\n")
         print(f"  step counts saved to: {step_log_path}")
+        return S,ss,steps
+    else:
+        return S,ss
 
-    print("[3/5] Converting to Dyck language...")
+def convert(S,ss,args):
     t0 = time.time()
-    if(args.use_myconverter):
-         Dyks  = mys2d.sexp_str_to_dyck_and_labels(S) 
-         ssDyks= mys2d.sexp_str_to_dyck_and_labels(ss) 
+    convfilename=f"{args.sexpfilename}_conv.csv"
+    if(os.path.isfile(convfilename)):
+        with open(convfilename) as fp:
+            l=fp.readlines()
+            S,ss,_=l.split(",")
+
+    if(not args.use_s2d):
+         #if(os.exists):
+         Dyks,worddict  = mys2d.sexps_to_tokens(S,padding=True)
+         ssDyks,_= mys2d.sexps_to_tokens(ss,padding=True)
+         vocab_size=len(worddict)+1
+         pairs=[list(p) for p in zip(Dyks,ssDyks)]
+         #for p in pairs:
+         #   print(len(p[0]),len(p[1]))
     else:
          Dyks  = s2d.sexp_str_to_dyck_and_labels(S) 
          ssDyks= s2d.sexp_str_to_dyck_and_labels(ss) 
-
-    #pairs = make_pairs(Dyks, dlabels)
-    pairs = make_pairs(Dyks, ssDyks)
+         vocab_size=1000
+         pairs = make_pairs(Dyks, ssDyks)
+    pairs=[[np.array(p[i]) for i in range(len(p))]  for p in pairs]
     print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
+    return pairs,vocab_size
+
+def pipeline(args,
+             params_sexp:dict,
+             params_tr: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096},
+             out_root="result", seed: int =-1):
+    if(args.debug):
+        args.n_sexps=10
+    print("[1/5] Generating S-expressions...")
+    S,ss=genSexps(args)
+    print("[3/5] Converting to Dyck language...")
+    pairs,vocab_size=convert(S,ss,args)
 
     print("[4/5] K-fold training/evaluation...")
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     for k, (tr_idx, va_idx) in enumerate(folds):
         fold_dir = f"{out_root}/fold_{k+1:02d}"
-        fold_dir.mkdir(parents=True, exist_ok=True)
+        os.makedirs(fold_dir, exist_ok=True)
         train_pairs = [pairs[i] for i in tr_idx]
         val_pairs   = [pairs[i] for i in va_idx]
 
-        save_pairs_jsonl(train_pairs, fold_dir + "/train.jsonl")
-        save_pairs_jsonl(val_pairs, fold_dir + "/val.jsonl")
-
         print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
-    
-        ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
-        ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
+        if(not args.use_s2d):
+            ## "transpose"
+            ds_train = [ tensor([p[0]for p in train_pairs]),
+                         tensor([p[1]for p in train_pairs]) ]
+            ds_val   =  [ tensor([p[0]for p in val_pairs]),
+                         tensor([p[1]for p in val_pairs]) ]
+        else:
+            ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
+            ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
+
         print("[4/5] token to Tensor...")
+        best_val_acc,last_val_acc=train_one_fold(args.model, ds_train, ds_val,
+                                                 epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr)
 
-        _ = train_one_fold(args.model, ds_train, ds_val, fold_dir,
-                        epochs=args.epochs, batch_size=args.batch_size, seed=args.seed)
-
+        print(f"[fold {k+1}] best val acc: {best_val_acc}, last val acc: {last_val_acc}")
         if args.visualize:
             print(f"  [fold {k+1}] visualizing attention (if supported)...")
             vis.print_and_dump_attention_params(args.model,)
@@ -191,19 +219,27 @@ if __name__=="__main__":
     parser.add_argument("--max_depth", type=int, default=10, help="各S式の最大深さ")
     parser.add_argument("--kfold", type=int, default=5, help="交差検証のfold数")
     parser.add_argument("--model", type=str, choices=["fixed", "recursive"], default="fixed")
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--log_eval_steps", action="store_true",  help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
-    parser.add_argument("--visualize", action="store_true",
-                        help="学習後にmatrix_visualizerでAttention Matrixを保存 (可能な場合)")
+    parser.add_argument("--visualize", action="store_true",help="学習後にmatrix_visualizerでAttention Matrixを保存 (可能な場合)")
     parser.add_argument("--use_gen", action="store_true",  help="S式評価にhyの部分評価を使う")
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--use_myconverter", action="store_true")
+    parser.add_argument("--use_s2d", action="store_true")
     parser.add_argument("--use_gensexp", action="store_true",help="use old sexp generator")
-    parser.add_argument("--sexpfilename", type=str, default="",help="use sexp from file")
+    parser.add_argument("--sexpfilename", type=str, default="",help="use sexp from file") #S式をファイルから読み込む
+    parser.add_argument("--d_model", type=int, default=256)
+    parser.add_argument("--nhead", type=int, default=8)
+    parser.add_argument("--num_layer", type=int, default=4)
+    parser.add_argument("--dim_ff", type=int, default=1024)
+    parser.add_argument("--max_len", type=int, default=4096)
+    parser.add_argument("--max_data_num", type=int, default=0)
+
     args = parser.parse_args()
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
-    pipeline(args,out_root)
+    params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth}
+    params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+    pipeline(args, params_sexp,params_tr,out_root=out_root)

@@ -9,37 +9,21 @@ import random_hof_sexpr as hof
 # 変数::=x,y,z,t,v0,v1,...
 # list::=[expr,...]
 # expr::=値 | bool | 変数
-#       | (ops expr,...）
-#       | (cmps expr,...）
-#       | (if expr expr expr)
-#       | (fn [変数,...] expr)
-#       | (expr expr,...)
-#       | (compose expr expr)
-#       | (partial expr expr,...)
-#       | (map expr list)
-#       | (filter expr list)
-#       | (reduce expr list　expr)
-#       | (cons expr list)
-#       | (first list)
-#       | (rest list)
-#       | (append list list)
-#       | (len list)
-
-#  (ops expr,...）->値
-#  (cmps expr,...）->bool
-#  (if expr expr expr)->expr
-#  (fn [変数,...] expr)->closure
-#  (expr expr,...)->expr
-#  (compose expr expr)->expr
-#  (partial expr expr,...)->expr
-#  (map expr list)->list
-#  (filter expr list)->list
-#  (reduce expr list　expr)->expr
-#  (cons expr list)->list
-#  (first list)->expr
-#  (rest list)->list
-#  (append list list)->list
-#  (len list)->値
+#       | (ops expr,...）->　値
+#       | (cmps expr,...）->　bool
+#       | (if expr expr expr)-> expr
+#       | (fn [変数,...] expr) -> closure
+#       | (expr expr,...)-> expr
+#       | (compose expr expr)-> expr
+#       | (partial expr expr,...)-> expr
+#       | (map expr list)-> list
+#       | (filter expr list)-> list
+#       | (reduce expr list　expr)-> expr
+#       | (cons expr list)-> list
+#       | (first list)-> expr
+#       | (rest list)-> list
+#       | (append list list)-> list
+#       | (len list)-> 値
 
 # 値・bool・変数・演算子など ------------------------------
 MOD=7
@@ -61,7 +45,6 @@ def random_var():
 
 
 # ---- 終端生成（深さが尽きたとき用） --------------------------
-
 def gen_terminal(depth, want_kind="any"):
     # 深さ 0 のときに使う、できるだけ型を合わせた終端
     if want_kind == "int":# 値 or 変数を int 扱い
@@ -71,11 +54,9 @@ def gen_terminal(depth, want_kind="any"):
             return random_var(), "int"
     elif want_kind == "bool":
         return random.choice(BOOLS), "bool"
-    elif want_kind == "list":
-        # 空リストを返しておく
+    elif want_kind == "list":# 空リストを返しておく
         return "[]", "list"
-    elif want_kind == "closure":
-        # 単純な恒等関数
+    elif want_kind == "closure": # 単純な恒等関数
         v = random_var()
         return f"(fn [{v}] {v})", "closure"
     else:
@@ -95,22 +76,19 @@ def gen_list_literal(depth):
     return "[" + " ".join(elems) + "]", "list"
 
 # ---- 各コンストラクタ（型つき） ----------------------------
-def gen_op(depth):
-    # (opsymbols expr,... ) -> 値 (int)
+def gen_op(depth):   # (opsymbols expr,... ) -> 値 (int)
     op = random.choice(OPS)
     arity = random.randint(2, 4)
     args = [gen_expr(depth - 1, "int")[0] for _ in range(arity)]
     return "(" + " ".join([op] + args) + ")", "int"
 
-def gen_cmp(depth):
-    # (cmpsymbols expr,... ) -> bool
+def gen_cmp(depth):  # (cmpsymbols expr,... ) -> bool
     op = random.choice(CMPS)
     arity = random.randint(2, 3)
     args = [gen_expr(depth - 1, "int")[0] for _ in range(arity)]
     return "(" + " ".join([op] + args) + ")", "bool"
 
-def gen_if(depth, want_kind):
-    # (if expr expr expr) -> want_kind
+def gen_if(depth, want_kind):  # (if expr expr expr) -> want_kind
     cond = gen_expr(depth - 1, "bool")[0]
     then_expr, _ = gen_expr(depth - 1, want_kind)
     else_expr, _ = gen_expr(depth - 1, want_kind)
@@ -848,7 +826,7 @@ def sexpr_to_str(expr) -> str:
     if isinstance(expr, dict) and expr.get("type") == "closure":
         params = " ".join(expr["params"])
         body = sexpr_to_str(expr["body"])
-        return f"<closure fn [{params}] {body}>"
+        return f"(closure fn [{params}] {body})"
     if isinstance(expr, tuple) and expr and expr[0] == "list":
         inner = " ".join(sexpr_to_str(e) for e in expr[1])
         return f"[{inner}]"
@@ -900,12 +878,18 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int", seed=None):
         result.append((expr_str,sexpr_to_str(value),steps))
     return result
 
-def gen_and_eval_print(num_exprs=5, max_depth=4, want_kind="int", seed=None,filename="sexppair.txt",show=False):
+def gen_and_eval_print(params,filename="sexppair"):
+    seed=params.seed
+    show=params.show
+    num_exprs=params.n
+    max_depth=params.max_depth
+    target_free=params.target_free
+    valtype=params.valtype
     if seed is not None:
-        random.seed(seed)
-    with open(filename, "w") as f:
+        random.seed(params.seed)
+    with open(f"{filename}_n{num_exprs}_d{max_depth}_freevar{target_free}_kind{valtype}.txt", "w") as f:
         for _ in range(num_exprs):
-            expr_str, kind = random_typed_sexp(max_depth=max_depth, want_kind=want_kind)
+            expr_str, _= random_typed_sexp(max_depth=params.max_depth, want_kind=params.valtype)
             value, steps=totaleval(expr_str)
             if(show):
                 print("Generated expr:", expr_str)
@@ -918,11 +902,11 @@ import argparse
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Random higher‑order S‑expr generator + partial evaluator (Python + hy models, with step + free‑var counting + list forms)")
     p.add_argument("--n", type=int, default=10, help="number of expressions")
-    p.add_argument("--max-depth", type=int, default=4, help="maximum nesting depth")
+    p.add_argument("--max_depth", type=int, default=4, help="maximum nesting depth")
     p.add_argument("--seed", type=int, default=None, help="random seed")
     p.add_argument("--closed", action="store_true", help="disallow free variables in generation (forces 0 free vars)")
     p.add_argument("--var-pool", type=int, default=4, help="size of the free-variable symbol pool (x,y,z,t,v0,...) ")
-    p.add_argument("--target-free", type=int, default=None, help="require exactly this many distinct free variables (best-effort)")
+    p.add_argument("--target_free", type=int, default=None, help="require exactly this many distinct free variables (best-effort)")
     p.add_argument("--show",  action="store_true", help="show result")
     p.add_argument("--show_short",  action="store_true", help="show short result")
     p.add_argument("--valtype",  type=str, default="int", help="value type to generate (int, bool, etc.)")
@@ -930,4 +914,4 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     ns = parse_args()
-    gen_and_eval(ns.n, max_depth=ns.max_depth, want_kind=ns.valtype, seed=ns.seed,filename="sexppair.txt",show=ns.show or ns.show_short)
+    gen_and_eval_print(ns)
