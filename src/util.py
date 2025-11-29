@@ -14,13 +14,14 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
         running_acc = 0.0
         total = 0
         
-        for imgs, targets in train_loader:
+        for imgs, targets,mask in train_loader:
             imgs = imgs.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
+            mask=mask.to(device, non_blocking=True)
 
             optimizer.zero_grad(set_to_none=True)
             with torch.cuda.amp.autocast(enabled=use_amp):
-                logits = model(imgs)
+                logits = model(imgs,attn_mask=mask)
                 loss = criterion(logits, targets)
             
             if(use_amp and scaler !=None):
@@ -47,11 +48,12 @@ def eval_core(device,model,val_loader,criterion,use_amp=True):
         val_running_acc = 0.0
         val_running_loss = 0.0
         with torch.no_grad():
-            for imgs, targets in val_loader:
+            for imgs, targets,masks in val_loader:
                 imgs = imgs.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True)
+                masks=masks.to(device, non_blocking=True)
                 with torch.cuda.amp.autocast(enabled=use_amp):
-                    logits = model(imgs)
+                    logits = model(imgs,masks)
                     loss = criterion(logits, targets)
                 bs = imgs.size(0)
                 val_total += bs

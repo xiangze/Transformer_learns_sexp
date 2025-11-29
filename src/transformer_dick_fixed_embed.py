@@ -180,6 +180,7 @@ class TransformerRegressor(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 256, nhead: int = 8,
                  num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1):
         super().__init__()
+        self.vocab_size=vocab_size
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
         self.num_proj = nn.Sequential(
