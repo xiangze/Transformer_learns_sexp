@@ -913,5 +913,13 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 if __name__ == "__main__":
-    ns = parse_args()
-    gen_and_eval_print(ns)
+    a=parse_args()
+    S=gen_and_eval(a.n,a.max_depth,seed=42)
+    print("length,")
+    for s in S:
+        print(s[0])
+    for s in S:
+        print(len(s[0]),len(s[1]),s[2],"steps")
+
+    #ns = parse_args()
+    #gen_and_eval_print(ns)

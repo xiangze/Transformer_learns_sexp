@@ -13,6 +13,31 @@ class _Node:
 # =========================
 # S式 <-> (Dyck, labels)
 # =========================
+def sexp_to_dyck(sexp: str) -> str:
+    """
+    sexpdata 互換のS式（list / Symbol / int / float）を
+    Dyck括弧列（"("と")"のみ）にエンコード。
+    """
+    dyck_chars: List[str] = []
+    calc_parents(sexp)
+
+    def visit(x: Any):
+        dyck_chars.append("(")
+        if isinstance(x, list):
+            for c in x:
+                visit(c)
+        elif isinstance(x, (Symbol, int, float, bool)) or x is None:
+            # 葉ノード（シンボル、数値、真偽値、None）はそのまま
+            pass
+        else:
+            # 必要なら型を拡張（文字列等）:
+            # ここでは安全のため明示エラー
+            raise TypeError(f"Unsupported atom type: {type(x)}")
+        dyck_chars.append(")")
+
+    visit(sexp)
+    return "".join(dyck_chars)
+
 def sexp_to_dyck_and_labels(sexp: Any) -> Tuple[str, List[str]]:
     """
     sexpdata 互換のS式（list / Symbol / int / float）を
@@ -124,20 +149,11 @@ def dyck_and_labels_to_sexp(dyck: str, labels: List[str]) -> Any:
 # =========================
 # 文字列I/Oのユーティリティ
 # =========================
-
 def sexp_str_to_dyck_and_labels(sexp_str: str) -> Tuple[str, List[str]]:
-    """
-    S式文字列（例: '(+ 1 (* 2 3))'）をパースして Dyck+labels に。
-    """
-    sexp = loads(sexp_str)
-    return sexp_to_dyck_and_labels(sexp)
+    return sexp_to_dyck_and_labels(sexp = loads(sexp_str))
 
 def dyck_and_labels_to_sexp_str(dyck: str, labels: List[str]) -> str:
-    """
-    Dyck+labels から S式文字列に復元。
-    """
-    sexp = dyck_and_labels_to_sexp(dyck, labels)
-    return dumps(sexp)
+    return dumps(dyck_and_labels_to_sexp(dyck, labels))
 
 # =========================
 # 動作デモ

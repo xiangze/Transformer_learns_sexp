@@ -30,13 +30,13 @@ def sexp_str_to_dyck(s:str,worddict=None,show=False) -> List[int]:
      Dyks = []
      maxdepth=countparen(s)
      """S式文字列 s に含まれる単語数をカウント"""
-     contents = s.replace('(', ' ').replace(')', ' ').replace('[', ' ').replace(']', ' ').split()
+     
      if(worddict is None):
-        worddict={token:i for i, token in enumerate(list(set(contents))) }
+        worddict=makedict([s])
+
      tokens = s.replace('(', '( ').replace(')', ' )').replace('[', '[ ').replace(']', ' ]').split()
 
      if(show):
-        print(contents)
         print(worddict)
         print(tokens)
         
@@ -72,26 +72,31 @@ def one_hot_encode_dyck(Dycks:List[List[int]], vocab_size:int) -> torch.Tensor:
         one_hot_tensor = torch.nn.functional.one_hot(dyck_tensor, num_classes=vocab_size)
         tensor_list.append(one_hot_tensor)
     return torch.stack(tensor_list)  # バッチ次元でスタック
-     
-def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
+
+def makedict(S:list):
     contents = []
     for s in S:
         contents.extend(s.replace('(', ' ').replace(')', ' ').replace('[', ' ').replace(']', ' ').split())
-    worddict={token:i for i, token in enumerate(list(set(contents))) }
+    return {token:i for i, token in enumerate(list(set(contents))) }
+
+def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
+    worddict=makedict(S)
     if(padding):
         tokens=[sexp_str_to_dyck(s, worddict=worddict, show=show) for s in S]
         maxlen=max([len(s) for s in tokens])
+        paddings=[[int(i<=len(s)) for i in range(maxlen) ] for s in tokens]
         tokens=[s+[0]*(maxlen-len(s)) for s in tokens]
-        return tokens,worddict
+        print("maxlen",maxlen)
+        return tokens,worddict,paddings
     else:
-        return [sexp_str_to_dyck(s, worddict=worddict, show=show) for s in S],worddict
+        return [sexp_str_to_dyck(s, worddict=worddict, show=show) for s in S],worddict,None
 
 def sexps_to_tokens_onehot(S:list,show=False) -> List[List]:        
     Dycks,_=sexps_to_tokens(S,show=show)
     maxdepth=max([max(dyck) for dyck in Dycks])
     return one_hot_encode_dyck(Dycks,vocab_size=maxdepth+1)
 
-if __name__ == "__main__":
+def example():
     examples = [
         "(+ 1 (* 2 3))",
         "(if (< 1 2) (pow 3 2) (min (list 7 8 9)))",
@@ -104,3 +109,6 @@ if __name__ == "__main__":
         print(f"  角括弧深さ: {countkakko(s)}")
         print(f"  Dycks  : {sexp_str_to_dyck(s)}")
         print("one hot",one_hot_encode_dyck([sexp_str_to_dyck(s)],vocab_size=20))
+
+if __name__ == "__main__":
+    example()
