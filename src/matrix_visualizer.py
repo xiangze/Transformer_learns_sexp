@@ -174,6 +174,22 @@ def attach_hooks_for_vanilla_transformer(model):
             mod.register_forward_hook(make_hook(name))
     return captured
 
+def save_vanilla_attention_heatmap(model,tokenlength,out_dir):
+    captured = attach_hooks_for_vanilla_transformer(model)
+    tokens = [f"t{i}" for i in range(tokenlength)]
+    for name, W in captured.items():
+        # 形状整形：MultiheadAttention の重みは [batch*nheads, tgt, src] など版差ありうる
+        A = W
+        while A.ndim < 2:  # 念のため
+            A = A.unsqueeze(0)
+        if A.ndim == 2:
+            plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}",f"{out_dir}/vanilla_{name}.png")
+        elif A.ndim == 3:
+            # [heads?, tgt, src] と仮定してヘッド平均
+            Aavg = A.mean(dim=0).numpy()
+            plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", f"{out_dir}/vanilla_{name}_avg.png")
+        print(f"Saved vanilla attention heatmap(s) for {name}")
+
 def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
     parser.add_argument("--model", type=str, required=True, help="Hugging Face model name or path (e.g., bert-base-uncased, gpt2, cl-tohoku/bert-base-japanese-v3)")
@@ -203,19 +219,7 @@ def main():
 
         out_dir = Path(args.out)
         out_dir.mkdir(parents=True, exist_ok=True)
-        tokens = [f"t{i}" for i in range(10)]
-        for name, W in captured.items():
-            # 形状整形：MultiheadAttention の重みは [batch*nheads, tgt, src] など版差ありうる
-            A = W
-            while A.ndim < 2:  # 念のため
-                A = A.unsqueeze(0)
-            if A.ndim == 2:
-                plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}", out_dir / f"vanilla_{name}.png")
-            elif A.ndim == 3:
-                # [heads?, tgt, src] と仮定してヘッド平均
-                Aavg = A.mean(dim=0).numpy()
-                plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", out_dir / f"vanilla_{name}_avg.png")
-            print(f"Saved vanilla attention heatmap(s) for {name}")
+        save_vanilla_attention_heatmap(model,10,out_dir)
         return
 
     # HuggingFace モデルでの本処理

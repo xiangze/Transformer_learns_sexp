@@ -178,11 +178,12 @@ def collate(batch):
 # =========================================================
 class TransformerRegressor(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 256, nhead: int = 8,
-                 num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1):
+                 num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1,pad_id:int=-1):
         super().__init__()
         self.vocab_size=vocab_size
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
+        self.pad_id=pad_id
         self.num_proj = nn.Sequential(
             nn.Linear(1, d_model),
             nn.Tanh(),
@@ -195,7 +196,7 @@ class TransformerRegressor(nn.Module):
         self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
-            nn.Linear(d_model, 1)
+            nn.Linear(d_model, max_len)
         )
 
     def forward(self,
@@ -214,8 +215,6 @@ class TransformerRegressor(nn.Module):
             x = x + num_embed
         # --- attn_mask も省略可能にしたい場合 ---
         if attn_mask is None:
-            # 例: pad_id をクラス変数で持っておく
-            # self.pad_id を __init__ で受け取るなど
             key_padding_mask = (input_ids == self.pad_id)
         else:
             key_padding_mask = (attn_mask == 0) # True=padding
