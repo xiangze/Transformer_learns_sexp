@@ -82,7 +82,7 @@ def train_one_fold(model_kind: str,
                    device:str="cuda", use_amp=True,
                    ) -> Optional[Any]:
     
-    print(f"Device: {device}")
+    print(f"Device: {device} amp:{use_amp}")
     pin = (device == "cuda")
     if model_kind == "fixed":
         model=fixed.TransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"])
@@ -93,15 +93,14 @@ def train_one_fold(model_kind: str,
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
 
-    # ds=[tensor(t) for t in ds_train]
-    # if(ds[0].shape[1]!=ds[1].shape[1]):
-    #     print("ds_train",ds[0].shape,ds[1].shape,ds[2].shape)
-    #     exit()
-    for d in [tensor(t) for t in ds_train]:
-        print(d.shape)
+    ds_train=[tensor(t) for t in ds_train]
+    ds_val  =[tensor(t) for t in ds_val]
+    if(ds_train[0].shape[1]!=ds_train[1].shape[1]):
+         print("ds_train",ds_train[0].shape,ds_train[1].shape,ds_train[2].shape)
+         exit()
 
-    ds_train = TensorDataset( *[tensor(t) for t in ds_train])
-    ds_val   = TensorDataset( *[tensor(t) for t in ds_val])
+    ds_train = TensorDataset( *ds_train)
+    ds_val   = TensorDataset( *ds_val)
 
     num_workers=1
     train_loader = DataLoader(ds_train, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
@@ -205,7 +204,7 @@ def pipeline(args,
     S,ss,steps=genSexps(args)
     print("[3/5] Converting to Dyck language...")
     pairs,vocab_size=convert(S,ss,args)
-    params_tr["max_len"]=max( [len(s[0]) for s in pairs])
+    params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
 
     print("max S length",params_tr["max_len"])
     print("max ss len",max( [len(s[1]) for s in pairs]))
@@ -230,7 +229,8 @@ def pipeline(args,
 
         print("[4/5] token to Tensor...")
         best_val_acc,last_val_acc=train_one_fold(args.model, ds_train, ds_val,
-                                                 epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,device=args.device)
+                                                 epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
+                                                 device=args.device,use_amp=(args.device=="cuda"))
 
         print(f"[fold {k+1}] best val acc: {best_val_acc}, last val acc: {last_val_acc}")
         if args.visualize:
@@ -262,7 +262,7 @@ if __name__=="__main__":
     parser.add_argument("--nhead",     type=int, default=8,   help="num. of heads")
     parser.add_argument("--num_layer", type=int, default=4,   help="num. of layers")
     parser.add_argument("--dim_ff",    type=int, default=256, help="dim. of FNN")
-    parser.add_argument("--max_len",   type=int, default=4096,help="max length of input sequence?")
+    parser.add_argument("--max_len",   type=int, default=4096,help="max length of input sequence")
     # others
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--log_eval_steps", action="store_true",  help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
