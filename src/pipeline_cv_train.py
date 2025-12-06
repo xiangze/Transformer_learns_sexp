@@ -109,8 +109,8 @@ def train_one_fold(model_kind: str,
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
-    best_val_acc,last_val_acc=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True)
-    return best_val_acc,last_val_acc
+    best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True)
+    return model,best_val_loss,last_val_loss
 
 def genSexps(args):
     t0 = time.time()
@@ -155,6 +155,8 @@ def genSexps(args):
         return S,ss,steps
     else:
         return S,ss,None
+def toint(S):
+    return [[int(i) for i in s] for s in S]
 
 def convert(S,ss,args):
     t0 = time.time()
@@ -169,19 +171,18 @@ def convert(S,ss,args):
                 S.append(n[0].replace("[","").split(", "))
                 ss.append(n[1].split(", "))
                 paddings.append(n[2].replace("]","").split(", "))
-        S=[[int(i) for i in s] for s in S]
-        ss=[[int(i) for i in s] for s in ss]
-        paddings=[[int(i) for i in s] for s in paddings]
+        S=toint(S)
+        ss=toint(ss)
+        paddings=toint(paddings)
         vocab_size=max([max(s) for s in S]+[max(s) for s in ss])
         print("length S,ss,padding",len(S[0]),len(ss[0]),len(paddings[0]))
         print("vacab size",vocab_size)
         pairs=[list(p) for p in zip(S,ss,paddings)]
     elif(not args.use_s2d):
-         Dyks,worddict,paddings  = mys2d.sexps_to_tokens(S,padding=True)
-         ssDyks,wdss,sspaddings= mys2d.sexps_to_tokens(ss,padding=True)
-         worddict.update(wdss)
+         tokenss,worddict,paddingss=mys2d.sexpss_to_tokens(S,ss)
+         S,ss=tokenss
          vocab_size=len(worddict)+1
-         pairs=[list(p) for p in zip(Dyks,ssDyks,paddings)]
+         pairs=[list(p) for p in zip(S,ss,paddingss[0])]
          with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kindint.txt_conv.csv", "w") as f:
              for p in pairs:
                 print(p,file=f)
@@ -206,8 +207,8 @@ def pipeline(args,
     pairs,vocab_size=convert(S,ss,args)
     params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
 
-    print("max S length",params_tr["max_len"])
-    print("max ss len",max( [len(s[1]) for s in pairs]))
+    print("max S  length",params_tr["max_len"])
+    print("max ss length",max( [len(s[1]) for s in pairs]))
     print("max vocab size",vocab_size)
 
     print("[4/5] K-fold training/evaluation...")
@@ -228,14 +229,14 @@ def pipeline(args,
             ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
 
         print("[4/5] token to Tensor...")
-        best_val_acc,last_val_acc=train_one_fold(args.model, ds_train, ds_val,
+        model,best_val_acc,last_val_acc=train_one_fold(args.model, ds_train, ds_val,
                                                  epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
                                                  device=args.device,use_amp=(args.device=="cuda"))
 
         print(f"[fold {k+1}] best val acc: {best_val_acc}, last val acc: {last_val_acc}")
-        if args.visualize:
-            print(f"  [fold {k+1}] visualizing attention (if supported)...")
-            vis.print_and_dump_attention_params(args.model,)
+        
+        print(f"  [fold {k+1}] visualizing attention (if supported)...")
+        vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir)
         print("[5/5] Done.")
 
 # ------------------------------
@@ -266,7 +267,6 @@ if __name__=="__main__":
     # others
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--log_eval_steps", action="store_true",  help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
-    parser.add_argument("--visualize", action="store_true",help="学習後にmatrix_visualizerでAttention Matrixを保存 (可能な場合)")
     parser.add_argument("--debug", action="store_true")
     # old
     parser.add_argument("--use_s2d", action="store_true")
