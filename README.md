@@ -59,8 +59,8 @@ pipeline_cv_trainは
 - S式生成、評価対の作成　genSexps
 - Dyck language(IDで表されたtocken列)への変換 convert
 - Tarnsformerによる学習、評価 train_one_fold
-
-の3つの部分関数で構成されている。各々で以下のファイルを呼んでいる。
+- Attention Matrixの可視化　save_vanilla_attention_heatmap
+の4つの部分関数で構成されている。各々で以下のファイルを呼んでいる。
 
 ### モデル
 - transformer_dick_fixed_embed.py  Dyck言語を入力とするTransformer
@@ -70,6 +70,31 @@ pipeline_cv_trainは
 ### S式、Dyck言語生成
 - mysexp2dick.py S式からDyck言語(IDで表されたtocken列)への変換
 - randomhof_with_weight.py 高階関数S式生成、評価
+
+#### S式の要素と評価
+- atoms(数値)
+- 変数(関数名含む)
+- list literal
+組み込み関数(処理関数_evalに直接簡約法が書かれている)
+- closure
+- if
+- fn(関数定義)
+- 四則演算子
+- 比較演算子
+- compose
+- partial
+- map
+- filter
+- reduce
+- cons
+- first
+- rest
+- append
+- len
+それ以外は「関数適用」
+
+引数の”型”によって簡約不可能な場合もある。簡約によって文字数が増える場合も有りうる。
+
 ### その他
 - util.py　学習、評価用関数
 - matrix_visualizer.py 行列可視化機能
@@ -77,6 +102,7 @@ pipeline_cv_trainは
 ## 評価における注意点
 - 層数、S式の長さ(context長), S式の深さ、自由変数の数に対する汎化誤差の変化
 - 学習後のAttention matrixが当初の予想通り単純なものになっているか(特にS式が浅い場合)
+- 必要に応じてtoken番号の並べ替え、Attentionの正則化を行いAttention Matrixを単純化する。
 - MLPだけでは学習がうまくいかないのはmagic number±7の影響が考えられるが、逆にMulti head Attention+固定の組み替え層のみでは学習可能か？
 
 ## 先行研究
