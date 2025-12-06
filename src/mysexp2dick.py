@@ -57,7 +57,7 @@ def sexp_str_to_dyck(s:str,worddict=None,show=False) -> List[int]:
             try:
                 Dyks.append(worddict[t]+maxdepth)
             except KeyError:
-                print(tokens)
+                print(f"no key {t}",tokens)
                 exit()
 
      mim=min(Dyks)
@@ -90,6 +90,16 @@ def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
         return tokens,worddict,paddings
     else:
         return [sexp_str_to_dyck(s, worddict=worddict, show=show) for s in S],worddict,None
+
+def sexpss_to_tokens(S1:list,S2:list,show=False) -> List:
+    worddict=makedict(S1)
+    worddict.update(makedict(S2))
+    tokenss=[ [sexp_str_to_dyck(s, worddict=worddict, show=show) for s in k] for k in [S1,S2]]
+    maxlen=max([len(sk) for s in tokenss for sk in s])
+    print("maxlen(S1,S2)",maxlen)
+    paddingss= [[int(i<=len(s)) for i in range(maxlen) ] for s in tokenss]
+    tokenss=[ [s+[0]*(maxlen-len(s)) for s in tokens] for tokens in tokenss]
+    return tokenss,worddict,paddingss
 
 def sexps_to_tokens_onehot(S:list,show=False) -> List[List]:        
     Dycks,_=sexps_to_tokens(S,show=show)
