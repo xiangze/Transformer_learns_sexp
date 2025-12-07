@@ -95,16 +95,16 @@ def train_one_fold(model_kind: str,
 
     ds_train=[tensor(t) for t in ds_train]
     ds_val  =[tensor(t) for t in ds_val]
+    print("ds_train",ds_train[0].shape,ds_train[1].shape,ds_train[2].shape)
+    print("ds_val",ds_val[0].shape,ds_val[1].shape,ds_val[2].shape)
     if(ds_train[0].shape[1]!=ds_train[1].shape[1]):
-         print("ds_train",ds_train[0].shape,ds_train[1].shape,ds_train[2].shape)
+         exit()
+    if(ds_val[0].shape[1]!=ds_val[1].shape[1]):
          exit()
 
-    ds_train = TensorDataset( *ds_train)
-    ds_val   = TensorDataset( *ds_val)
-
     num_workers=1
-    train_loader = DataLoader(ds_train, batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
-    val_loader   = DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
+    train_loader = DataLoader(TensorDataset( *ds_train), batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
+    val_loader   = DataLoader(TensorDataset( *ds_val), batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
 
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
@@ -165,24 +165,21 @@ def convert(S,ss,args):
         print("load ",convfilename)
         S=[];ss=[];paddings=[]
         with open(convfilename) as fp:
-            ls=fp.readlines()
-            for l in ls:
+            for l in fp.readlines():
                 n=l.split("], [")
                 S.append(n[0].replace("[","").split(", "))
                 ss.append(n[1].split(", "))
                 paddings.append(n[2].replace("]","").split(", "))
-        S=toint(S)
-        ss=toint(ss)
-        paddings=toint(paddings)
+        S,ss,paddings=[toint(s) for s in [S,ss,paddings]]
         vocab_size=max([max(s) for s in S]+[max(s) for s in ss])
         print("length S,ss,padding",len(S[0]),len(ss[0]),len(paddings[0]))
         print("vacab size",vocab_size)
         pairs=[list(p) for p in zip(S,ss,paddings)]
     elif(not args.use_s2d):
-         tokenss,worddict,paddingss=mys2d.sexpss_to_tokens(S,ss)
+         tokenss,_,padding=mys2d.sexpss_to_tokens(S,ss)
          S,ss=tokenss
-         vocab_size=len(worddict)+1
-         pairs=[list(p) for p in zip(S,ss,paddingss[0])]
+         vocab_size=max([max(s) for s in S]+[max(s) for s in ss])
+         pairs=[list(p) for p in zip(S,ss,padding)]
          with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kindint.txt_conv.csv", "w") as f:
              for p in pairs:
                 print(p,file=f)
@@ -193,6 +190,9 @@ def convert(S,ss,args):
          pairs = make_pairs(Dyks, ssDyks,paddings)
     pairs=[[np.array(p[i]) for i in range(len(p))]  for p in pairs]
     print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
+    #print("max S  length",params_tr["max_len"])
+    #print("max ss length",max( [len(s[1]) for s in pairs]))
+    print("max vocab size",vocab_size)
     return pairs,vocab_size
 
 def pipeline(args,
@@ -206,11 +206,6 @@ def pipeline(args,
     print("[3/5] Converting to Dyck language...")
     pairs,vocab_size=convert(S,ss,args)
     params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
-
-    print("max S  length",params_tr["max_len"])
-    print("max ss length",max( [len(s[1]) for s in pairs]))
-    print("max vocab size",vocab_size)
-
     print("[4/5] K-fold training/evaluation...")
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     for k, (tr_idx, va_idx) in enumerate(folds):
@@ -234,7 +229,6 @@ def pipeline(args,
                                                  device=args.device,use_amp=(args.device=="cuda"))
 
         print(f"[fold {k+1}] best val acc: {best_val_acc}, last val acc: {last_val_acc}")
-        
         print(f"  [fold {k+1}] visualizing attention (if supported)...")
         vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir)
         print("[5/5] Done.")
