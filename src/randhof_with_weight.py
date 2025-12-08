@@ -865,6 +865,7 @@ def eval_demo():  # 簡単なデモ
         "(len [1 2 3 4])",
         "(compose (fn [x] (+ x 1)) (fn [y] (* y 2)))",
     ]
+    print("demo")
     for s in samples:
         reduce_and_show(s)
 
@@ -920,6 +921,6 @@ if __name__ == "__main__":
         print(s[0])
     for s in S:
         print(len(s[0]),len(s[1]),s[2],"steps")
-
+    eval_demo()
     #ns = parse_args()
     #gen_and_eval_print(ns)

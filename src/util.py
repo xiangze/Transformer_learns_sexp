@@ -14,7 +14,6 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
         model.train()
         running_loss = 0.0
         total = 0
-        
         for imgs, targets,mask in train_loader:
             #print("img",imgs.shape,"mask",mask.shape,"target",targets.shape)
             imgs = imgs.to(device, non_blocking=True)
@@ -24,9 +23,6 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
             optimizer.zero_grad(set_to_none=True)
             with torch.cuda.amp.autocast(enabled=use_amp):
                 out = model(imgs,attn_mask=mask)
-                # if(out.shape!=targets.shape):
-                #     print("shape",out.shape,targets.shape)
-                #     exit()
                 loss = criterion(out, targets.to(out.dtype))
             
             if(use_amp and scaler !=None):
@@ -45,35 +41,34 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
         return train_loss 
 
 def eval_core(device,model,val_loader,criterion,use_amp=True):
-        # ---- eval ----
-        model.eval()
-        val_total = 0
-        val_running_loss = 0.0
-        with torch.no_grad():
-            for imgs, targets,masks in val_loader:
-                imgs = imgs.to(device, non_blocking=True)
-                targets = targets.to(device, non_blocking=True)
-                masks=masks.to(device, non_blocking=True)
-                with torch.cuda.amp.autocast(enabled=use_amp):
-                    logits = model(imgs,masks)
-                    loss = criterion(logits, targets.to(logits.dtype))
-                bs = imgs.size(0)
-                val_total += bs
-                val_running_loss += loss.item() * bs
+    model.eval()
+    val_total = 0
+    val_running_loss = 0.0
+    with torch.no_grad():
+        for imgs, targets,masks in val_loader:
+            imgs = imgs.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            masks=masks.to(device, non_blocking=True)
+            with torch.cuda.amp.autocast(enabled=use_amp):
+                logits = model(imgs,attn_mask=masks)
+                loss = criterion(logits, targets.to(logits.dtype))
+            bs = imgs.size(0)
+            val_total += bs
+            val_running_loss += loss.item() * bs
 
-        val_loss = val_running_loss / val_total
-        return val_loss 
+    val_loss = val_running_loss / val_total
+    return val_loss 
 
-def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True):
+def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True,peri=100):
     best_val_loss = 0.0
+    val_loss=0.
     model.to(device)
     scaler=torch.cuda.amp.GradScaler()
     for epoch in range(1, epochs + 1):
-        print(f"Epoch {epoch}/{epochs}")
         train_loss=train_core(device,model,train_loader,optimizer,criterion,use_amp,scaler)
         msg=f"[{epoch:03d}/{epochs}] "+f"train_loss={train_loss:.4f} "
 
-        if(epoch%100==0):
+        if(epoch%peri==0):
             if(eval):
                 val_loss=eval_core(device,model,val_loader,criterion,use_amp)
                 msg+=f"val_loss={val_loss:.4f}  "

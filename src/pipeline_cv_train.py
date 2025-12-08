@@ -95,8 +95,8 @@ def train_one_fold(model_kind: str,
 
     ds_train=[tensor(t) for t in ds_train]
     ds_val  =[tensor(t) for t in ds_val]
-    print("ds_train",ds_train[0].shape,ds_train[1].shape,ds_train[2].shape)
-    print("ds_val",ds_val[0].shape,ds_val[1].shape,ds_val[2].shape)
+    for d in ds_val:
+        print(d.shape,",",end="")
     if(ds_train[0].shape[1]!=ds_train[1].shape[1]):
          exit()
     if(ds_val[0].shape[1]!=ds_val[1].shape[1]):
@@ -155,6 +155,7 @@ def genSexps(args):
         return S,ss,steps
     else:
         return S,ss,None
+
 def toint(S):
     return [[int(i) for i in s] for s in S]
 
@@ -222,16 +223,15 @@ def pipeline(args,
         else:
             ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
             ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
+        if(len(ds_train)>0 and len(ds_val)>0):
+            model,best_val_loss,last_val_loss=train_one_fold(args.model, ds_train, ds_val,
+                                                    epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
+                                                    device=args.device,use_amp=(args.device=="cuda"))
 
-        print("[4/5] token to Tensor...")
-        model,best_val_acc,last_val_acc=train_one_fold(args.model, ds_train, ds_val,
-                                                 epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
-                                                 device=args.device,use_amp=(args.device=="cuda"))
-
-        print(f"[fold {k+1}] best val acc: {best_val_acc}, last val acc: {last_val_acc}")
-        print(f"  [fold {k+1}] visualizing attention (if supported)...")
+        print(f"[fold {k+1}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
+        print(f"[fold {k+1}] visualizing attention (if supported)...")
         vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir)
-        print("[5/5] Done.")
+    print("[5/5] Done.")
 
 # ------------------------------
 # Main
