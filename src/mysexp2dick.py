@@ -78,6 +78,8 @@ def makedict(S:list):
     for s in S:
         contents.extend(s.replace('(', ' ').replace(')', ' ').replace('[', ' ').replace(']', ' ').split())
     return {token:i for i, token in enumerate(list(set(contents))) }
+def padding(tokens,maxlen):
+    return [s+[0]*(maxlen-len(s)) for s in tokens]
 
 def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
     worddict=makedict(S)
@@ -85,7 +87,7 @@ def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
         tokens=[sexp_str_to_dyck(s, worddict=worddict, show=show) for s in S]
         maxlen=max([len(s) for s in tokens])
         masks=[[int(i<=len(s)) for i in range(maxlen) ] for s in tokens]
-        tokens=[s+[0]*(maxlen-len(s)) for s in tokens] #add padding
+        tokens=padding(tokens,maxlen)
         print("maxlen",maxlen)
         return tokens,worddict,masks
     else:
@@ -96,8 +98,9 @@ def sexpss_to_tokens(S1:list,S2:list,show=False) -> List:
     worddict.update(makedict(S2))
     tokenss=[ [sexp_str_to_dyck(s, worddict=worddict, show=show) for s in k] for k in [S1,S2]]
     maxlen=max([len(sk) for tokens in tokenss for sk in tokens])
-    maskss=[[[int(i>len(s)) for i in range(maxlen)] for s in ss ]for ss in [S1,S2]] 
-    tokenss=[ [s+[0]*(maxlen-len(s)) for s in tokens ]for tokens in tokenss]#padding
+    maskss=[[[int(i>=len(s)) for i in range(maxlen)] for s in ss ]for ss in [S1,S2]] 
+    #tokenss=[ padding(tokens,maxlen) for tokens in tokenss]
+    tokenss=[[s+[0]*(maxlen-len(s)) for s in tokens] for tokens in tokenss]
     return tokenss,worddict, maskss
 
 def sexps_to_tokens_onehot(S:list,show=False) -> List[List]:        

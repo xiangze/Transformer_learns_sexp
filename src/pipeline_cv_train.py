@@ -79,13 +79,13 @@ def train_one_fold(model_kind: str,
                    ds_train, ds_val,
                    epochs: int, batch_size: int, vocab_size: int,
                    params: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096},
-                   device:str="cuda", use_amp=True,
+                   device:str="cuda", use_amp=True,evalperi=100,debug=False
                    ) -> Optional[Any]:
     
     print(f"Device: {device} amp:{use_amp}")
     pin = (device == "cuda")
     if model_kind == "fixed":
-        model=fixed.TransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"])
+        model=fixed.TransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"],debug=debug)
     elif model_kind == "recursive":
         model=recursive.SharedTransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"])
     # elif model_kind == "attentiononly":
@@ -109,7 +109,7 @@ def train_one_fold(model_kind: str,
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
-    best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True)
+    best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True,peri=evalperi,debug=debug)
     return model,best_val_loss,last_val_loss
 
 def genSexps(args):
@@ -119,7 +119,7 @@ def genSexps(args):
             ls=[ line.strip() for line in f.readlines()]
         ls=[k.strip().split(",") for k in ls]
         S, ss, steps = map(list, zip(*ls))
-        print(f"  loaded: {len(S)} samples in {time.time()-t0:.2f}s")
+        print(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s")
         if(args.max_data_num>0):
             S=S[:min(args.max_data_num,len(S))]
     elif(args.use_gensexp):
@@ -132,8 +132,8 @@ def genSexps(args):
         print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
-        SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed)
-        with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kindint.txt", "w") as f:
+        SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind)
+        with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
             for s in SS:
                 print(f"{s[0]},{s[1]},{s[2]}",file=f)            
         S, ss, steps = map(list, zip(*SS))
@@ -157,40 +157,41 @@ def toint(S):
 def convert(S,ss,args):
     t0 = time.time()
     convfilename=f"{args.sexpfilename}_conv.csv"
-    if(os.path.isfile(convfilename)):
-        print("load ",convfilename)
-        S=[];ss=[];paddings=[]
-        with open(convfilename) as fp:
-            for l in fp.readlines():
-                n=l.split("], [")
-                S.append(n[0].replace("[","").split(", "))
-                ss.append(n[1].split(", "))
-                paddings.append(n[2].replace("]","").split(", "))
-        S,ss,paddings=[toint(s) for s in [S,ss,paddings]]
-        vocab_size=max([max(s) for s in S]+[max(s) for s in ss])
-        print("length S,ss,padding",len(S[0]),len(ss[0]),len(paddings[0]))
+    if(not args.use_s2d):
+        if(os.path.isfile(convfilename)):
+            print("load ",convfilename)
+            S=[];ss=[];masks=[];target_masks=[]
+            with open(convfilename) as fp:
+                for l in fp.readlines():
+                    n=l.split("], [")
+                    for i,s in enumerate([S,ss,masks,target_masks]):
+                        s.append(n[i].replace("]","").replace("[","").split(", "))
+            S,ss,masks,target_masks=[toint(s) for s in [S,ss,masks,target_masks]]
+            print(f"read {len(S)} pairs from {convfilename}")
+        else:
+            #maskss=[masks_for_S,masks_for_SS]
+            tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss)
+            S,ss=tokenss
+            masks=maskss[0]
+            target_masks=maskss[1]
+            d=[S,ss,masks,target_masks]
+            with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.csv", "w") as f: 
+                for p in zip(d):
+                    print(p,file=f)
+        pairs=[list(p) for p in zip(S,ss,masks,target_masks)]
+        vocab_size=max([max(s) for s in S]+[max(s) for s in ss])+1
+        
+        print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
+        print("length S,ss,maksk,target_maksk",len(S[0]),len(ss[0]),len(masks),len(target_masks))
         print("vacab size",vocab_size)
-        pairs=[list(p) for p in zip(S,ss,paddings)]
         print("len pairs",len(pairs))
-    elif(not args.use_s2d):
-         #maskss=[masks_for_S,masks_for_SS]
-         tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss)
-         S,ss=tokenss
-         #print(len(S),len(ss),len(maskss[0]))
-         vocab_size=max([max(s) for s in S]+[max(s) for s in ss])
-         pairs=[list(p) for p in zip(S,ss,maskss[0])]
-         with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kindint.txt_conv.csv", "w") as f:
-             for p in pairs:
-                print(p,file=f)
     else:
          Dyks  = s2d.sexp_str_to_dyck_and_labels(S) 
          ssDyks= s2d.sexp_str_to_dyck_and_labels(ss) 
          vocab_size=1000
-         pairs = make_pairs(Dyks, ssDyks,paddings)
-    print("len S,ss,masks",len(S),len(ss),len(maskss[0]))
+         pairs = make_pairs(Dyks, ssDyks,masks)
     pairs=[[np.array(p[i]) for i in range(len(p))]  for p in pairs]
-    print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
-    print("max vocab size",vocab_size)
+
     return pairs,vocab_size
 
 def pipeline(args,
@@ -207,15 +208,11 @@ def pipeline(args,
     print("[4/5] K-fold training/evaluation...")
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     for k, (tr_idx, va_idx) in enumerate(folds):
-        fold_dir = f"{out_root}/fold_{k+1:02d}"
-        os.makedirs(fold_dir, exist_ok=True)
+        os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
         train_pairs = [pairs[i] for i in tr_idx]
         val_pairs   = [pairs[i] for i in va_idx]
 
-        print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
         if(not args.use_s2d):
-            ## "transpose"
-            #print(pairs[0])
             ds_train = [np.array(list(t)) for t in zip(*train_pairs)]
             ds_val   = [np.array(list(t)) for t in zip(*val_pairs)]
         else:
@@ -224,11 +221,11 @@ def pipeline(args,
         if(len(ds_train)>0 and len(ds_val)>0):
             model,best_val_loss,last_val_loss=train_one_fold(args.model, ds_train, ds_val,
                                                     epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
-                                                    device=args.device,use_amp=(args.device=="cuda"))
+                                                    device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
         else:
             print("no train,val data")
-        print(f"[fold {k+1}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
-        print(f"[fold {k+1}] visualizing attention (if supported)...")
+        print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
+        print(f"[fold {k+1}/{args.kfold}] visualizing attention (if supported)...")
         pname="".join([f"{k}_{v}_" for k,v in params_sexp.items()])+"".join([f"{k}_{v}_" for k,v in params_tr.items()])
         vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir,pname)
     print("[5/5] Done.")
@@ -245,6 +242,7 @@ if __name__=="__main__":
     parser.add_argument("--max_depth", type=int, default=10, help="各S式の最大深さ")
     parser.add_argument("--sexpfilename", type=str, default="",help="use sexp from file") #S式をファイルから読み込む
     parser.add_argument("--max_data_num", type=int, default=0)
+    parser.add_argument("--want_kind", type=str, default="int")
     # leaning params
     parser.add_argument("--kfold", type=int, default=5, help="交差検証のfold数")
     parser.add_argument("--model", type=str, choices=["fixed", "recursive"], default="fixed")
@@ -252,6 +250,7 @@ if __name__=="__main__":
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda",help="device(cpu/cuda)")
+    parser.add_argument("--evalperi", type=int, default=100,help="evaluation period during training")
     # Transformer params
     parser.add_argument("--d_model",   type=int, default=256, help="depth of model")
     parser.add_argument("--nhead",     type=int, default=8,   help="num. of heads")

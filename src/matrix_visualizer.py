@@ -202,8 +202,7 @@ def main():
     parser.add_argument("--avg_heads", action="store_true", help="Average over heads instead of selecting a head")
     parser.add_argument("--out", type=str, default="attn_out", help="Output directory")
     parser.add_argument("--cpu", action="store_true", help="Force CPU")
-    parser.add_argument("--vanilla_demo", action="store_true",
-                        help="(Optional) Run a tiny demo with torch.nn.TransformerEncoder and hooks instead of HF model")
+    parser.add_argument("--vanilla_demo", action="store_true",help="(Optional) Run a tiny demo with torch.nn.TransformerEncoder and hooks instead of HF model")
     args = parser.parse_args()
 
     if args.vanilla_demo:

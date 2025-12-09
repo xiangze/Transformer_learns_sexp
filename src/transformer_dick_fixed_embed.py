@@ -178,12 +178,13 @@ def collate(batch):
 # =========================================================
 class TransformerRegressor(nn.Module):
     def __init__(self, vocab_size: int, d_model: int = 256, nhead: int = 8,
-                 num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1,pad_id:int=-1):
+                 num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1,pad_id:int=-1,debug=False):
         super().__init__()
         self.vocab_size=vocab_size
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
         self.pad_id=pad_id
+        self.debug=debug
         self.num_proj = nn.Sequential(
             nn.Linear(1, d_model),
             nn.Tanh(),
@@ -201,18 +202,20 @@ class TransformerRegressor(nn.Module):
 
     def forward(self,
         input_ids: torch.Tensor,
-        num_vals: torch.Tensor | None = None,
-        num_mask: torch.Tensor | None = None,
         attn_mask: torch.Tensor | None = None, ):
         B, L = input_ids.shape
         pos_ids = torch.arange(L, device=input_ids.device).unsqueeze(0).expand(B, L)
-        x = self.tok(input_ids) + self.pos(pos_ids)
-
-        # numeric embedding（非数値位置は0）
-        if (num_vals is not None) and (num_mask is not None):
-            num_embed = self.num_proj(num_vals.unsqueeze(-1))
-            num_embed = num_embed * num_mask.unsqueeze(-1).float()
-            x = x + num_embed
+        if(self.debug):
+            try:
+                x = self.tok(input_ids) + self.pos(pos_ids)
+            except:
+                print("input",input_ids)
+                print("max input",torch.max(input_ids))
+                print("vocab_size",self.vocab_size)
+                exit()
+        else:
+            x = self.tok(input_ids) + self.pos(pos_ids)
+            
         # --- attn_mask も省略可能にしたい場合 ---
         if attn_mask is None:
             key_padding_mask = (input_ids == self.pad_id)

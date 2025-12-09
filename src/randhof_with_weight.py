@@ -245,6 +245,14 @@ def gen_expr(depth, want_kind="any"):
             ("partial", 3),
             ("if_closure", 1),
         ]
+    elif want_kind == "kinder":
+        candidates = [
+            ("value_terminal", 4),
+            ("op", 6),
+            ("cmp", 3),
+            ("if_int", 3),
+            ("app", 2),
+        ]
     else:  # any
         candidates = [
             ("op", 2),
