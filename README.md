@@ -76,11 +76,10 @@ pipeline_cv_trainは
 - 変数(関数名含む)
 - list literal
 組み込み関数(処理関数_evalに直接簡約法が書かれている)
-- closure
-- if
-- fn(関数定義)
 - 四則演算子
 - 比較演算子
+- fn(関数定義,closure)
+- if
 - compose
 - partial
 - map
