@@ -118,9 +118,7 @@ def genSexps(args):
         with open(args.sexpfilename,"r",encoding="utf-8") as f:
             ls=[ line.strip() for line in f.readlines()]
         ls=[k.strip().split(",") for k in ls]
-        S=[r[0] for r in  ls]
-        ss=[r[1] for r in ls]
-        steps=[r[2] for r in  ls]
+        S, ss, steps = map(list, zip(*ls))
         print(f"  loaded: {len(S)} samples in {time.time()-t0:.2f}s")
         if(args.max_data_num>0):
             S=S[:min(args.max_data_num,len(S))]
@@ -134,18 +132,15 @@ def genSexps(args):
         print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
-        S=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed)
+        SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed)
         with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kindint.txt", "w") as f:
-            for s in S:
+            for s in SS:
                 print(f"{s[0]},{s[1]},{s[2]}",file=f)            
-
-        ss=[r[1] for r in S]
-        steps=[r[2] for r in  S]
-        S=[r[0] for r in  S]
+        S, ss, steps = map(list, zip(*SS))
 
     if  steps is not None:
         step_log_path = str(out_root) + "/eval_steps.csv"
-        with open(step_log_path,"w", encoding="utf-8") as f:
+        with open(step_log_path,"w") as f:
             f.write("index,steps\n")
             for i,s in enumerate(S):
                f.write(f"org exp len {len(s)},reduced len {len(ss[i])}, {steps[i]}steps\n")
@@ -176,11 +171,14 @@ def convert(S,ss,args):
         print("length S,ss,padding",len(S[0]),len(ss[0]),len(paddings[0]))
         print("vacab size",vocab_size)
         pairs=[list(p) for p in zip(S,ss,paddings)]
+        print("len pairs",len(pairs))
     elif(not args.use_s2d):
-         tokenss,_,padding=mys2d.sexpss_to_tokens(S,ss)
+         #maskss=[masks_for_S,masks_for_SS]
+         tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss)
          S,ss=tokenss
+         #print(len(S),len(ss),len(maskss[0]))
          vocab_size=max([max(s) for s in S]+[max(s) for s in ss])
-         pairs=[list(p) for p in zip(S,ss,padding)]
+         pairs=[list(p) for p in zip(S,ss,maskss[0])]
          with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kindint.txt_conv.csv", "w") as f:
              for p in pairs:
                 print(p,file=f)
@@ -189,10 +187,9 @@ def convert(S,ss,args):
          ssDyks= s2d.sexp_str_to_dyck_and_labels(ss) 
          vocab_size=1000
          pairs = make_pairs(Dyks, ssDyks,paddings)
+    print("len S,ss,masks",len(S),len(ss),len(maskss[0]))
     pairs=[[np.array(p[i]) for i in range(len(p))]  for p in pairs]
-    print(f"  converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
-    #print("max S  length",params_tr["max_len"])
-    #print("max ss length",max( [len(s[1]) for s in pairs]))
+    print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
     print("max vocab size",vocab_size)
     return pairs,vocab_size
 
@@ -218,6 +215,7 @@ def pipeline(args,
         print(f"  [fold {k+1}/{args.kfold}] train={len(train_pairs)} val={len(val_pairs)}")
         if(not args.use_s2d):
             ## "transpose"
+            #print(pairs[0])
             ds_train = [np.array(list(t)) for t in zip(*train_pairs)]
             ds_val   = [np.array(list(t)) for t in zip(*val_pairs)]
         else:
@@ -227,10 +225,12 @@ def pipeline(args,
             model,best_val_loss,last_val_loss=train_one_fold(args.model, ds_train, ds_val,
                                                     epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
                                                     device=args.device,use_amp=(args.device=="cuda"))
-
+        else:
+            print("no train,val data")
         print(f"[fold {k+1}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
         print(f"[fold {k+1}] visualizing attention (if supported)...")
-        vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir)
+        pname="".join([f"{k}_{v}_" for k,v in params_sexp.items()])+"".join([f"{k}_{v}_" for k,v in params_tr.items()])
+        vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir,pname)
     print("[5/5] Done.")
 
 # ------------------------------
@@ -270,5 +270,7 @@ if __name__=="__main__":
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename}
+    if(args.sexpfilename!=""):
+        params_sexp["sexpfilename"]=args.sexpfilename
     params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
     pipeline(args, params_sexp,params_tr,out_root=out_root)

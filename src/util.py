@@ -72,11 +72,10 @@ def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,sc
             if(eval):
                 val_loss=eval_core(device,model,val_loader,criterion,use_amp)
                 msg+=f"val_loss={val_loss:.4f}  "
+            if(scheduler!=None):
+                msg+=f"lr={scheduler.get_last_lr()[0]:.6f}"
 
-        if(scheduler!=None):
-            msg+=f"lr={scheduler.get_last_lr()[0]:.6f}"
-    
-        print(msg)
+            print(msg)
 
         if(scheduler!=None):
             scheduler.step()

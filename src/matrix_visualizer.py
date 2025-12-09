@@ -174,7 +174,7 @@ def attach_hooks_for_vanilla_transformer(model):
             mod.register_forward_hook(make_hook(name))
     return captured
 
-def save_vanilla_attention_heatmap(model,tokenlength,out_dir):
+def save_vanilla_attention_heatmap(model,tokenlength,out_dir,pname):
     captured = attach_hooks_for_vanilla_transformer(model)
     tokens = [f"t{i}" for i in range(tokenlength)]
     for name, W in captured.items():
@@ -183,12 +183,15 @@ def save_vanilla_attention_heatmap(model,tokenlength,out_dir):
         while A.ndim < 2:  # 念のため
             A = A.unsqueeze(0)
         if A.ndim == 2:
-            plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}",f"{out_dir}/vanilla_{name}.png")
+            plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}",f"{out_dir}/vanilla_{pname}_{name}.png")
+            print(f"Saved vanilla attention heatmap(s) for {name}")
         elif A.ndim == 3:
             # [heads?, tgt, src] と仮定してヘッド平均
             Aavg = A.mean(dim=0).numpy()
-            plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", f"{out_dir}/vanilla_{name}_avg.png")
-        print(f"Saved vanilla attention heatmap(s) for {name}")
+            plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", f"{out_dir}/vanilla_{pname}_{name}_avg.png")
+            print(f"Saved vanilla attention heatmap(s) for {name}")
+        else:
+            print("cannot save heatmap")
 
 def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
