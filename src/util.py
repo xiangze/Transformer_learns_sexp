@@ -1,6 +1,26 @@
 from __future__ import annotations
 import torch
 from typing import Any, List, Tuple, Optional
+import numpy as np
+
+def pri(k,v,fp):
+    print(k,f"shape:{v.shape}",file=fp)
+    if(v.dim()>2):
+        for i in range(v.shape[0]):
+            np.savetxt(fp,v[i].cpu().detach().numpy())
+    else:
+        np.savetxt(fp,v.cpu().detach().numpy())        
+
+def nanindex(d,k="out") -> torch.Tensor:
+    """テンソル内のNaNのインデックスを返す"""
+    nanidx = torch.isnan(d[k]).nonzero(as_tuple=False)
+    if(nanidx.shape[0]>0):
+        with open(f"nan_{k}.log","w") as fp:
+            for k,v in d.items():
+                pri(k,v,fp)
+        exit()
+    else:
+        return None
 
 def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler=None,debug=False):
         model.train()
@@ -21,16 +41,8 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
                 loss_raw = (out - targets) ** 2     # (B,L,D)
                 loss = (loss_raw * valid_mask.squeeze(-1)).sum() / valid_mask.sum()
             if(debug):
-                nanidx = torch.isnan(out).nonzero(as_tuple=False)
-                if(nanidx.shape[0]>0):
-                    with open("nan.log","w") as fp:
-                        print("in",imgs,file=fp)
-                        print("mask",mask,file=fp)
-                        print("out",out,file=fp)
-                        print("nan index",file=fp)
-                        print(nanidx,file=fp)
-                        
-                    exit()
+                print("loss")
+                nanindex({"img":imgs,"out":out,"img":imgs,"mask":mask},k="out")
             if(use_amp and scaler !=None):
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
