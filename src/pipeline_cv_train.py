@@ -14,13 +14,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import util
-import generate_sexp_with_variable as gen_mod
-import evallisp as eval_mod
+#import generate_sexp_with_variable as gen_mod
+#import evallisp as eval_mod
 import sexp2dick as s2d
 import mysexp2dick as mys2d
 import matrix_visualizer as vis
-import step_counter
-import torch
+#import step_counter
 from torch.utils.data import DataLoader,TensorDataset
 import torch.nn as nn
 import torch.optim as optim
@@ -32,13 +31,13 @@ import numpy as np
 # ------------------------------
 # Data pipeline components
 # ------------------------------
-def eval_S(S: List[List[str]],use_gen:bool ,log_steps: bool) -> Tuple[List[List[str]], Optional[List[int]]]:
-    if(use_gen):
-        return gen_mod.hy_eval_program_str(S)
-    if(log_steps):
-        return step_counter.eval_with_steps(S) 
-    else:
-        return eval_mod.execSexp(S),None
+# def eval_S(S: List[List[str]],use_gen:bool ,log_steps: bool) -> Tuple[List[List[str]], Optional[List[int]]]:
+#     if(use_gen):
+#         return gen_mod.hy_eval_program_str(S)
+#     if(log_steps):
+#         return step_counter.eval_with_steps(S) 
+#     else:
+#         return eval_mod.execSexp(S),None
 
 # ------------------------------
 # Dataset helpers
@@ -78,18 +77,21 @@ import Recursive_Ttansformer as recursive
 def train_one_fold(model_kind: str,
                    ds_train, ds_val,
                    epochs: int, batch_size: int, vocab_size: int,
-                   params: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096},
+                   params: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096, "use_step_embed": True, "norm_first": True},
                    device:str="cuda", use_amp=True,evalperi=100,debug=False
                    ) -> Optional[Any]:
     
     print(f"Device: {device} amp:{use_amp}")
     pin = (device == "cuda")
+    params["pad_id"]=0
+    params["dropout"]=0.2
+    params["vocab_size"]=vocab_size
     if model_kind == "fixed":
-        model=fixed.TransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"],debug=debug)
+        model=fixed.TransformerRegressor(params,debug=debug)
     elif model_kind == "recursive":
-        model=recursive.SharedTransformerRegressor(vocab_size=vocab_size, d_model=params["d_model"], nhead=params["nhead"], num_layers = params["num_layer"], dim_ff= params["dim_ff"], max_len= params["max_len"])
+        model=recursive.SharedTransformerRegressor(params,debug=debug)
     # elif model_kind == "attentiononly":
-    #     model=atn.AttentionOnlyRegressor(d_model=params["d_model"], n_heads=params["nhead"], num_layers=params["num_layer"], dropout=0.1)
+    #     model=atn.AttentionOnlyRegressor(params,debug=debug)
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
 
@@ -122,14 +124,14 @@ def genSexps(args):
         print(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s")
         if(args.max_data_num>0):
             S=S[:min(args.max_data_num,len(S))]
-    elif(args.use_gensexp):
-        S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
-        print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
-        print(S[0])
-        print("[2/5] Evaluating S-expressions...")
-        t0 = time.time()
-        ss, steps = eval_S(S, args.use_gen,args.log_eval_steps)
-        print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
+    # elif(args.use_gensexp):
+    #     S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
+    #     print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
+    #     print(S[0])
+    #     print("[2/5] Evaluating S-expressions...")
+    #     t0 = time.time()
+    #     ss, steps = eval_S(S, args.use_gen,args.log_eval_steps)
+    #     print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
         SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind)
@@ -170,7 +172,7 @@ def convert(S,ss,args):
             print(f"read {len(S)} pairs from {convfilename}")
         else:
             #maskss=[masks_for_S,masks_for_SS]
-            tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss)
+            tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss,show=False)
             S,ss=tokenss
             masks=maskss[0]
             target_masks=maskss[1]
