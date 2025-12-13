@@ -33,19 +33,20 @@ def collate(batch):
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
 # =========================================================
 class TransformerRegressor(nn.Module):
-    def __init__(self, vocab_size: int, d_model: int = 256, nhead: int = 8,
-                 num_layers: int = 4, dim_ff: int = 1024, max_len: int = 4096, dropout: float = 0.1,pad_id:int=-1,debug=False):
+    def __init__(self, params:dict,debug=False):
         super().__init__()
+        vocab_size=params["vocab_size"]
+        d_model=params["d_model"]
+        nhead=params["nhead"]
+        num_layers = params["num_layer"]
+        dim_ff= params["dim_ff"] 
+        max_len= params["max_len"]
+        self.pad_id=params["pad_id"]
+        dropout=params["dropout"]
         self.vocab_size=vocab_size
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
-        self.pad_id=pad_id
         self.debug=debug
-        self.num_proj = nn.Sequential(
-            nn.Linear(1, d_model),
-            nn.Tanh(),
-            nn.Linear(d_model, d_model)
-        )
         enc_layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
             dropout=dropout, batch_first=True, activation="gelu"
@@ -69,21 +70,66 @@ class TransformerRegressor(nn.Module):
                 print("max input",torch.max(input_ids))
                 print("vocab_size",self.vocab_size)
                 exit()
-            print("shape x",x.shape)
-            util.nanindex({"x":x,"input_ids":input_ids,"attn_mask":attn_mask},"x")
         else:
             x = self.tok(input_ids) + self.pos(pos_ids)
-        
-        # --- attn_mask も省略可能にしたい場合 ---
+
         if attn_mask is None:
             key_padding_mask = (input_ids == self.pad_id)
         else:
             key_padding_mask = (attn_mask == 0) # True=padding
+        key_padding_mask[:, 0] = False
+
+        valid = (~key_padding_mask).sum(dim=1)
+        assert torch.all(valid > 0), "Some sequences fully masked!"
 
         h = self.enc(x, src_key_padding_mask=key_padding_mask)
-        if(self.debug):
-            util.nanindex({"h":h,"padding_mask":key_padding_mask},"h")
         cls = h[:, 0, :]  # 先頭が <CLS>
         yhat = self.head(cls)  # (B,1)
+        if(self.debug):
+            util.nanindex({"h":h,"padding_mask":key_padding_mask,"x":x,"cls":cls,"yhat":yhat},"h")
         return yhat
+
+if __name__ == "__main__":
+    import torch.optim as optim
+    params = {
+        "vocab_size": 4,
+        "d_model": 4,
+        "nhead": 1,
+        "num_layer": 1,
+        "dim_ff": 2,
+        "max_len": 50,
+        "pad_id": 0,
+        "dropout": 0., }
+    B = 2
+    L = 10
+    N = 20
+    for mask in [False,True]:
+        model = TransformerRegressor(params,debug=True)
+        optimizer=optim.Adam(model.parameters(), lr=0.05)
+        optimizer.zero_grad(set_to_none=True)
+        #1 epoch
+        model.train()
+        if(mask):
+            print("with mask")
+            attn_mask = torch.ones((B, L), dtype=torch.long)
+            attn_mask[0, 5:] = 0  # padding
+        else:
+            print("without mask")
+        for i in range(N):
+            input_ids = torch.randint(0, params["vocab_size"], (B, L))
+            label=input_ids.sum(dim=1,keepdim=True).float()
+            if(mask):
+                yhat=model(input_ids,attn_mask)
+                valid_mask = (1-attn_mask).unsqueeze(-1).float()  # (B,L,1)
+                loss_raw = (yhat - label)**2
+                print("loss",loss_raw.shape,"mask",valid_mask.shape)
+                loss = (loss_raw * valid_mask.squeeze(-1)).sum()/valid_mask.sum()
+            else:
+                yhat=model(input_ids,None)
+                loss=((yhat - label)**2).sum()
+            loss.backward()
+            optimizer.step()
+            print("yhat:",yhat)
+            print("loss:", loss)
+
 
