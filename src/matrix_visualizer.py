@@ -1,9 +1,10 @@
 import argparse
 from pathlib import Path
 import torch
+from torch import nn
 import matplotlib.pyplot as plt
-
 from transformers import AutoModel, AutoTokenizer, AutoConfig
+from typing import Dict, List, Tuple
 
 def plot_heatmap(matrix, xlabels, ylabels, title, out_path):
     plt.figure(figsize=(max(6, len(xlabels)*0.5), max(5, len(ylabels)*0.5)))
@@ -152,51 +153,81 @@ def run_hf_attention_vis(args):
                     save_param_matrix(W, f"{name} -> {tag}", path)
                 print(f"Saved split Q/K/V for {name} to {out_dir}")
 
-def attach_hooks_for_vanilla_transformer(model):
+class ForceWeightsMHA(nn.Module):
     """
-    PyTorch nn.MultiheadAttention に forward hook を付けて attention weights を捕捉。
-    返り値: captured dict {module_name: last_weights_tensor}
+    nn.MultiheadAttention をラップして、
+    forward 呼び出し時に必ず need_weights=True にする。
     """
-    captured = {}
+    def __init__(self, mha: nn.MultiheadAttention, average_attn_weights: bool = False):
+        super().__init__()
+        self.mha = mha
+        self.average_attn_weights = average_attn_weights
+        self.last_attn = None  # (B, H, T, S) など
 
-    def make_hook(name):
-        def hook(mod, inp, out):
-            # out: (attn_output, attn_output_weights) の可能性が高い
-            if isinstance(out, tuple) and len(out) >= 2:
-                captured[name] = out[1].detach().cpu()  # [tgt_len, src_len] or with batch dims
-            else:
-                # PyTorch version により異なり得る
-                captured[name] = out
-        return hook
+    def forward(self, query, key, value, **kwargs):
+        # EncoderLayer は need_weights=False で呼んでくるので上書き
+        kwargs["need_weights"] = True
+        kwargs["average_attn_weights"] = self.average_attn_weights
 
-    for name, mod in model.named_modules():
-        if isinstance(mod, torch.nn.MultiheadAttention):
-            mod.register_forward_hook(make_hook(name))
-    return captured
+        out, attn = self.mha(query, key, value, **kwargs)
+        self.last_attn = attn
+        return out, attn
 
-def save_vanilla_attention_heatmap(model,tokenlength,out_dir,pname):
-    captured = attach_hooks_for_vanilla_transformer(model)
+def attach_encoder_attn_hooks(
+    encoder: nn.TransformerEncoder,  average_attn_weights: bool = False,
+    ) -> Tuple[Dict[str, torch.Tensor], List[torch.utils.hooks.RemovableHandle]]:
+    """
+    encoder 内の各 layer.self_attn を ForceWeightsMHA に差し替え、
+    forward hook で attention weights を回収する。
+    """
+    attn_by_layer: Dict[str, torch.Tensor] = {}
+    hooks: List[torch.utils.hooks.RemovableHandle] = []
+
+    for i, layer in enumerate(encoder.layers):
+        # self_attn を差し替え
+        if isinstance(layer.self_attn, nn.MultiheadAttention):
+            layer.self_attn = ForceWeightsMHA(layer.self_attn, average_attn_weights=average_attn_weights)
+            print("ForceWeightsMHA(",i)
+        name = f"layer{i}.self_attn"
+        
+        def make_hook(layer_name: str):
+            def hook(module, inputs, outputs):
+                # outputs は (attn_output, attn_weights)
+                _, attn = outputs
+                attn_by_layer[layer_name] = attn  # 必要なら detach/cpu
+            return hook
+
+        hooks.append(layer.self_attn.register_forward_hook(make_hook(name)))
+    return attn_by_layer, hooks
+
+def save_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir="./",pname=""):
+    print(attn_dict)
     tokens = [f"t{i}" for i in range(tokenlength)]
-    for name, W in captured.items():
+
+    for name, W in attn_dict:
         # 形状整形：MultiheadAttention の重みは [batch*nheads, tgt, src] など版差ありうる
         A = W
         while A.ndim < 2:  # 念のため
             A = A.unsqueeze(0)
-        if A.ndim == 2:
-            plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}",f"{out_dir}/vanilla_{pname}_{name}.png")
-            print(f"Saved vanilla attention heatmap(s) for {name}")
-        elif A.ndim == 3:
-            # [heads?, tgt, src] と仮定してヘッド平均
-            Aavg = A.mean(dim=0).numpy()
-            plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", f"{out_dir}/vanilla_{pname}_{name}_avg.png")
-            print(f"Saved vanilla attention heatmap(s) for {name}")
-        else:
+        try:
+            if A.ndim == 2:
+                plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}",f"{out_dir}/vanilla_{pname}_{name}.png")
+                print(f"Saved vanilla attention heatmap(s) for {name}")
+            elif A.ndim == 3:
+                # [heads?, tgt, src] と仮定してヘッド平均
+                Aavg = A.mean(dim=0).numpy()
+                plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", f"{out_dir}/vanilla_{pname}_{name}_avg.png")
+                print(f"Saved vanilla attention heatmap(s) for {name}")
+            else:
+                print("cannot save heatmap")
+        except:
             print("cannot save heatmap")
+            exit()
 
 def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
-    parser.add_argument("--model", type=str, required=True, help="Hugging Face model name or path (e.g., bert-base-uncased, gpt2, cl-tohoku/bert-base-japanese-v3)")
-    parser.add_argument("--text", type=str, required=True, help="Input text to compute attentions for")
+    parser.add_argument("--model", type=str, default=None, help="Hugging Face model name or path (e.g., bert-base-uncased, gpt2, cl-tohoku/bert-base-japanese-v3)")
+    parser.add_argument("--text", type=str, default=None, help="Input text to compute attentions for")
     parser.add_argument("--layer", type=int, default=None, help="Layer index to visualize (default: 0)")
     parser.add_argument("--head", type=int, default=None, help="Head index to visualize (default: 0)")
     parser.add_argument("--avg_heads", action="store_true", help="Average over heads instead of selecting a head")
@@ -210,22 +241,26 @@ def main():
         d_model, nhead, dim_ff, nlayers = 64, 4, 128, 2
         encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_ff, batch_first=True)
         model = torch.nn.TransformerEncoder(encoder_layer, num_layers=nlayers)
-        captured = attach_hooks_for_vanilla_transformer(model)
-
+        attn_dict,hooks = attach_encoder_attn_hooks(model)
         # ダミー入力（トークン列長さ=10）
         x = torch.randn(1, 10, d_model)
         src_key_padding_mask = None
         # 実行（need_weights=True は内部で指定済みの実装差があるので hook ベース）
         with torch.no_grad():
             _ = model(x, mask=None, src_key_padding_mask=src_key_padding_mask)
-
+        # attn_dict,hooks = attach_encoder_attn_hooks(model)
         out_dir = Path(args.out)
         out_dir.mkdir(parents=True, exist_ok=True)
-        save_vanilla_attention_heatmap(model,10,out_dir)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+        torch.backends.cuda.enable_math_sdp(True)
+        save_vanilla_attention_heatmap(10,attn_dict,out_dir,pname="sample_")
         return
-
     # HuggingFace モデルでの本処理
-    run_hf_attention_vis(args)
+    else:
+        assert args.model!=None ,"HuggingFace Model should by set"
+        assert args.text!=None , "input text should by set"
+        run_hf_attention_vis(args)
 
 if __name__ == "__main__":
     main()
