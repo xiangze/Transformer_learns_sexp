@@ -7,7 +7,7 @@ from transformers import AutoModel, AutoTokenizer, AutoConfig
 from typing import Dict, List, Tuple
 
 def plot_heatmap(matrix, xlabels, ylabels, title, out_path):
-    plt.figure(figsize=(max(6, len(xlabels)*0.5), max(5, len(ylabels)*0.5)))
+    print(f"plot heatmap {out_path}")
     plt.imshow(matrix, aspect='auto', origin='lower')
     plt.colorbar()
     plt.xticks(range(len(xlabels)), xlabels, rotation=90)
@@ -155,24 +155,32 @@ def run_hf_attention_vis(args):
 
 class ForceWeightsMHA(nn.Module):
     """
-    nn.MultiheadAttention をラップして、
-    forward 呼び出し時に必ず need_weights=True にする。
+    nn.MultiheadAttention をラップして need_weights=True を強制しつつ、
+    TransformerEncoderLayer が参照する属性(batch_first等)を透過する。
     """
     def __init__(self, mha: nn.MultiheadAttention, average_attn_weights: bool = False):
         super().__init__()
         self.mha = mha
         self.average_attn_weights = average_attn_weights
-        self.last_attn = None  # (B, H, T, S) など
+        self.last_attn = None
+
+        # TransformerEncoderLayer が参照することがある属性を明示的に持たせる
+        self.batch_first = getattr(mha, "batch_first", False)
 
     def forward(self, query, key, value, **kwargs):
-        # EncoderLayer は need_weights=False で呼んでくるので上書き
         kwargs["need_weights"] = True
         kwargs["average_attn_weights"] = self.average_attn_weights
-
         out, attn = self.mha(query, key, value, **kwargs)
         self.last_attn = attn
         return out, attn
 
+    def __getattr__(self, name):
+        # nn.Module の属性解決を壊さないためのガード
+        if name in ("mha", "average_attn_weights", "last_attn", "batch_first"):
+            return super().__getattr__(name)
+        # その他の属性は元の MultiheadAttention に委譲
+        return getattr(self.mha, name)
+    
 def attach_encoder_attn_hooks(
     encoder: nn.TransformerEncoder,  average_attn_weights: bool = False,
     ) -> Tuple[Dict[str, torch.Tensor], List[torch.utils.hooks.RemovableHandle]]:
@@ -201,28 +209,36 @@ def attach_encoder_attn_hooks(
     return attn_by_layer, hooks
 
 def save_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir="./",pname=""):
-    print(attn_dict)
     tokens = [f"t{i}" for i in range(tokenlength)]
-
-    for name, W in attn_dict:
+    for name,A in attn_dict.items():
         # 形状整形：MultiheadAttention の重みは [batch*nheads, tgt, src] など版差ありうる
-        A = W
-        while A.ndim < 2:  # 念のため
-            A = A.unsqueeze(0)
-        try:
-            if A.ndim == 2:
-                plot_heatmap(A.numpy(), tokens, tokens, f"[vanilla] {name}",f"{out_dir}/vanilla_{pname}_{name}.png")
-                print(f"Saved vanilla attention heatmap(s) for {name}")
-            elif A.ndim == 3:
-                # [heads?, tgt, src] と仮定してヘッド平均
-                Aavg = A.mean(dim=0).numpy()
-                plot_heatmap(Aavg, tokens, tokens, f"[vanilla] {name} (avg heads)", f"{out_dir}/vanilla_{pname}_{name}_avg.png")
-                print(f"Saved vanilla attention heatmap(s) for {name}")
-            else:
-                print("cannot save heatmap")
-        except:
-            print("cannot save heatmap")
-            exit()
+        assert A.ndim<5 ,f"dimention is too large {A.shape}"
+        assert A.ndim>2 ,f"dimention is too small {A.shape}"
+        fname=f"{out_dir}/vanilla_{pname}_{A.ndim}.png"
+        if A.ndim == 2:
+            plot_heatmap(A, tokens, tokens, f"{name}", fname)
+        elif A.ndim == 3:
+            # [heads?, tgt, src] と仮定してヘッド平均
+            plot_heatmap(A.mean(dim=0).numpy(), tokens, tokens, f"{name}(avg heads)",fname)
+        elif A.ndim == 4:
+            plot_heatmap(A[0].mean(dim=0).numpy(), tokens, tokens, f"{name}(avg heads,bacth=0)",fname)
+
+def vanilla_demo(tokenlength,out_dir="./",pname=""):    
+        # 小さなデモ：nn.TransformerEncoder で hooks により注意重みを取得
+        d_model, nhead, dim_ff, nlayers = 64, 4, 128, 2
+        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_ff, batch_first=True)
+        model = torch.nn.TransformerEncoder(encoder_layer, num_layers=nlayers)
+        attn_dict,hooks = attach_encoder_attn_hooks(model)
+        # ダミー入力（トークン列長さ=10）
+        x = torch.randn(1, 10, d_model)
+        # 実行（need_weights=True は内部で指定済みの実装差があるので hook ベース）
+        with torch.no_grad():
+            _ = model(x, mask=None, src_key_padding_mask=None)
+        torch.backends.cuda.enable_flash_sdp(False)
+        torch.backends.cuda.enable_mem_efficient_sdp(False)
+        torch.backends.cuda.enable_math_sdp(True)
+        save_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir,pname="vanilla_")
+        return
 
 def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
@@ -237,27 +253,9 @@ def main():
     args = parser.parse_args()
 
     if args.vanilla_demo:
-        # 小さなデモ：nn.TransformerEncoder で hooks により注意重みを取得
-        d_model, nhead, dim_ff, nlayers = 64, 4, 128, 2
-        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_ff, batch_first=True)
-        model = torch.nn.TransformerEncoder(encoder_layer, num_layers=nlayers)
-        attn_dict,hooks = attach_encoder_attn_hooks(model)
-        # ダミー入力（トークン列長さ=10）
-        x = torch.randn(1, 10, d_model)
-        src_key_padding_mask = None
-        # 実行（need_weights=True は内部で指定済みの実装差があるので hook ベース）
-        with torch.no_grad():
-            _ = model(x, mask=None, src_key_padding_mask=src_key_padding_mask)
-        # attn_dict,hooks = attach_encoder_attn_hooks(model)
-        out_dir = Path(args.out)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        torch.backends.cuda.enable_flash_sdp(False)
-        torch.backends.cuda.enable_mem_efficient_sdp(False)
-        torch.backends.cuda.enable_math_sdp(True)
-        save_vanilla_attention_heatmap(10,attn_dict,out_dir,pname="sample_")
-        return
-    # HuggingFace モデルでの本処理
+        vanilla_demo(20,out_dir="./",pname="")
     else:
+        # HuggingFace モデルでの本処理
         assert args.model!=None ,"HuggingFace Model should by set"
         assert args.text!=None , "input text should by set"
         run_hf_attention_vis(args)
