@@ -1,6 +1,5 @@
 import argparse        
 import random
-import random_hof_sexpr as hof
 
 # 値::=0,1,2,3,4,5,6
 # bool::=True,False
@@ -203,7 +202,6 @@ def gen_list(depth):
         return gen_append(depth)
     else:
         return gen_list_literal(depth)
-
 
 # ---- expr 生成のメイン -------------------------------------
 def gen_expr(depth, want_kind="any"):
