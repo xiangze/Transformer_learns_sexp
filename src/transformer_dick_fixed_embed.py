@@ -28,6 +28,54 @@ def collate(batch):
     return {"input_ids": input_ids, "num_vals": num_vals, "num_mask": num_mask,
             "attn_mask": attn_mask, "y": y}
 
+class ForceWeightsMHA(nn.Module):
+    """
+    nn.MultiheadAttention をラップして、
+    forward 呼び出し時に必ず need_weights=True にする。
+    """
+    def __init__(self, mha: nn.MultiheadAttention, average_attn_weights: bool = False):
+        super().__init__()
+        self.mha = mha
+        self.average_attn_weights = average_attn_weights
+        self.last_attn = None  # (B, H, T, S) など
+
+    def forward(self, query, key, value, **kwargs):
+        # EncoderLayer は need_weights=False で呼んでくるので上書き
+        kwargs["need_weights"] = True
+        kwargs["average_attn_weights"] = self.average_attn_weights
+
+        out, attn = self.mha(query, key, value, **kwargs)
+        self.last_attn = attn
+        return out, attn
+
+
+def attach_encoder_attn_hooks(
+    encoder: nn.TransformerEncoder,
+    average_attn_weights: bool = False,
+) -> Tuple[Dict[str, torch.Tensor], List[torch.utils.hooks.RemovableHandle]]:
+    """
+    encoder 内の各 layer.self_attn を ForceWeightsMHA に差し替え、
+    forward hook で attention weights を回収する。
+    """
+    attn_by_layer: Dict[str, torch.Tensor] = {}
+    handles: List[torch.utils.hooks.RemovableHandle] = []
+
+    for i, layer in enumerate(encoder.layers):
+        # self_attn を差し替え
+        if isinstance(layer.self_attn, nn.MultiheadAttention):
+            layer.self_attn = ForceWeightsMHA(layer.self_attn, average_attn_weights=average_attn_weights)
+
+        name = f"layer{i}.self_attn"
+        def make_hook(layer_name: str):
+            def hook(module, inputs, outputs):
+                # outputs は (attn_output, attn_weights)
+                _, attn = outputs
+                attn_by_layer[layer_name] = attn  # 必要なら detach/cpu
+            return hook
+        handles.append(layer.self_attn.register_forward_hook(make_hook(name)))
+
+    return attn_by_layer, handles
+
 # =========================================================
 # Transformer 回帰モデル
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
@@ -56,6 +104,7 @@ class TransformerRegressor(nn.Module):
             nn.LayerNorm(d_model),
             nn.Linear(d_model, max_len)
         )
+        attn_dict, hooks = attach_encoder_attn_hooks(self.encoder, average_attn_weights=False)
 
     def forward(self,
         input_ids: torch.Tensor,
