@@ -261,11 +261,9 @@ if __name__=="__main__":
     parser.add_argument("--max_len",   type=int, default=4096,help="max length of input sequence")
     # others
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
-    parser.add_argument("--log_eval_steps", action="store_true",  help="evallistがステップ数を返すAPIを持つ場合にCSV保存")
     parser.add_argument("--debug", action="store_true")
     # old
     parser.add_argument("--use_s2d", action="store_true")
-    parser.add_argument("--use_gensexp", action="store_true",help="use old sexp generator")
     
     args = parser.parse_args()
     out_root = Path(args.output_dir)

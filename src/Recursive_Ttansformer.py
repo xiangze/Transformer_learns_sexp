@@ -9,16 +9,22 @@ class SharedTransformerEncoder(nn.Module):
     """
     def __init__(
         self,
-        d_model: int = 256,
-        nhead: int = 8,
-        dim_ff: int = 1024,
-        dropout: float = 0.1,
-        steps: int = 6,                 # 反復回数（＝層数に相当）
-        max_len: int = 4096,
-        use_step_embed: bool = True,    # Universal Transformer 的な step embedding
-        norm_first: bool = True,        # Pre-LN の方が安定しやすい
-    ):
+        params:dict,
+        debug=False  ):
+
         super().__init__()
+        vocab_size=params["vocab_size"]
+        d_model=params["d_model"]
+        nhead=params["nhead"]
+        steps = params["num_layer"]# 反復回数（＝層数に相当）
+        use_step_embed= params["use_step_embed"]    # Universal Transformer 的な step embedding
+        norm_first = params["norm_first"]        # Pre-LN の方が安定しやすい
+
+        dim_ff= params["dim_ff"]
+        max_len= params["max_len"]
+        pad_id=params["pad_id"]
+        dropout=params["dropout"]
+
         self.steps = steps
         self.use_step_embed = use_step_embed
 

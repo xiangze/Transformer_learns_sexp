@@ -15,6 +15,7 @@ def nanindex(d,k="out") -> torch.Tensor:
     """テンソル内のNaNのインデックスを返す"""
     nanidx = torch.isnan(d[k]).nonzero(as_tuple=False)
     if(nanidx.shape[0]>0):
+        print("nan in ",d[k],d[k].shape)
         with open(f"nan_{k}.log","w") as fp:
             for k,v in d.items():
                 pri(k,v,fp)
@@ -43,6 +44,7 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
             if(debug):
                 print("loss")
                 nanindex({"img":imgs,"out":out,"img":imgs,"mask":mask},k="out")
+                
             if(use_amp and scaler !=None):
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
@@ -54,7 +56,6 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
             bs = imgs.size(0)
             total += bs
             running_loss += loss.item() * bs
-        #print("total",total)
         train_loss = running_loss / total
         return train_loss 
 
