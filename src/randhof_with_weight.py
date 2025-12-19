@@ -188,20 +188,14 @@ def gen_list(depth):
     weights = [c[1] for c in candidates]
     kind = random.choices(kinds, weights=weights, k=1)[0]
 
-    if kind == "literal":
-        return gen_list_literal(depth)
-    elif kind == "map":
-        return gen_map(depth)
-    elif kind == "filter":
-        return gen_filter(depth)
-    elif kind == "cons":
-        return gen_cons(depth)
-    elif kind == "rest":
-        return gen_rest(depth)
-    elif kind == "append":
-        return gen_append(depth)
-    else:
-        return gen_list_literal(depth)
+    kinds={"literal":gen_list_literal,
+           "map":gen_map,
+           "filter":gen_filter,
+           "cons":gen_cons,
+           "rest":gen_rest,
+           "append":gen_append,
+           }
+    return kinds.get(kind,gen_list_literal)(depth)
 
 # ---- expr 生成のメイン -------------------------------------
 def gen_expr(depth, want_kind="any"):
@@ -214,106 +208,81 @@ def gen_expr(depth, want_kind="any"):
 
     # 深さがまだある場合は、なるべく「計算ステップが多くなりそうな」コンストラクタを優先
     # kindごとに候補を用意
-    if want_kind == "int":
-        candidates = [
-            ("value_terminal", 1),
-            ("op", 4),
-            ("len", 3),
-            ("reduce", 4),
-            ("if_int", 2),
-            ("app", 2),
-        ]
-    elif want_kind == "bool":
-        candidates = [
-            ("bool_terminal", 1),
-            ("cmp", 5),
-            ("if_bool", 2),
-            ("app", 1),
-        ]
-    elif want_kind == "list":
-        candidates = [
-            ("list", 5),
-            ("if_list", 2),
-            ("app", 1),
-        ]
-    elif want_kind == "closure":
-        candidates = [
-            ("fn", 4),
-            ("compose", 3),
-            ("partial", 3),
-            ("if_closure", 1),
-        ]
-    elif want_kind == "kinder":
-        candidates = [
-            ("value_terminal", 4),
-            ("op", 6),
-            ("cmp", 3),
-            ("if_int", 3),
-            ("app", 2),
-        ]
-    else:  # any
-        candidates = [
-            ("op", 2),
-            ("cmp", 1),
-            ("list", 2),
-            ("fn", 2),
-            ("app", 4),
-            ("compose", 2),
-            ("partial", 2),
-            ("if_any", 2),
-            ("first", 2),
-            ("reduce", 3),
-        ]
-
+    kind_ccanditates={
+        "int":[
+             ("value_terminal", 1),
+             ("op", 4),
+             ("len", 3),
+             ("reduce", 4),
+             ("if_int", 2),
+             ("app", 2),
+        ],
+        "bool":[
+             ("bool_terminal", 1),
+             ("cmp", 5),
+             ("if_bool", 2),
+             ("app", 1),
+        ],
+        "list":[
+             ("list", 5),
+             ("if_list", 2),
+             ("app", 1),
+        ],
+        "closure":[
+             ("fn", 4),
+             ("compose", 3),
+             ("partial", 3),
+             ("if_closure", 1),
+        ],
+        "kinder":[
+             ("value_terminal", 4),
+             ("op", 6),
+             ("cmp", 3),
+             ("if_int", 3),
+             ("app", 2),
+        ],
+        "default":[
+             ("op", 2),
+             ("cmp", 1),
+             ("list", 2),
+             ("fn", 2),
+             ("app", 4),
+             ("compose", 2),
+             ("partial", 2),
+             ("if_any", 2),
+             ("first", 2),
+             ("reduce", 3),
+         ]
+    }
+    candidates=kind_ccanditates.get(want_kind,kind_ccanditates["default"])
     kinds = [c[0] for c in candidates]
     weights = [c[1] for c in candidates]
     k = random.choices(kinds, weights=weights, k=1)[0]
-
-    # 各候補ごとの生成
-    if k == "value_terminal":
-        return gen_terminal(depth, "int")
-    if k == "bool_terminal":
-        return gen_terminal(depth, "bool")
-    if k == "op":
-        return gen_op(depth)
-    if k == "cmp":
-        return gen_cmp(depth)
-    if k == "len":
-        return gen_len(depth)
-    if k == "fn":
-        return gen_fn(depth)
-    if k == "compose":
-        return gen_compose(depth)
-    if k == "partial":
-        return gen_partial(depth)
-    if k == "list":
-        return gen_list(depth)
-    if k == "map":
-        return gen_map(depth)
-    if k == "filter":
-        return gen_filter(depth)
-    if k == "reduce":
-        return gen_reduce(depth, "any" if want_kind == "any" else want_kind)
-    if k == "first":
-        return gen_first(depth)
-    if k == "app":
-        return gen_app(depth, want_kind)
-
-    # if 系は want_kind に応じて
-    elif k == "if_int":
-        return gen_if(depth, "int")
-    if k == "if_bool":
-        return gen_if(depth, "bool")
-    if k == "if_list":
-        return gen_if(depth, "list")
-    if k == "if_closure":
-        return gen_if(depth, "closure")
-    elif k == "if_any":
-        return gen_if(depth, "any")
-    else:
-    # フォールバック
-        return gen_terminal(depth, want_kind)
-
+    cases={
+        "value_terminal":lambda d:gen_terminal(d, "int"),
+        "bool_terminal":lambda d:gen_terminal(d, "bool"),
+        "op":gen_op,
+        "cmp":gen_cmp,
+        "len":gen_len,
+        "fn":gen_fn,
+        "compose":gen_compose,
+        "partial":gen_partial,
+        "list":gen_list,
+        "map":gen_map,
+        "filter":gen_filter,
+        "reduce":lambda d: gen_reduce(d, "any" if want_kind == "any" else want_kind),
+        "first":gen_first,
+        "app":lambda d:gen_app(d, want_kind),
+        # if 系は want_kind に応じて
+        "if_int": lambda d:gen_if(d, "int"),
+        "if_bool":lambda d:gen_if(d, "bool"),
+        "if_list":lambda d:gen_if(d, "list"),
+        "if_closure":lambda d:gen_if(d, "closure"),
+        "if_any":lambda d:gen_if(d, "any"),
+        }
+    return cases.get(k,lambda d:gen_terminal(d, want_kind))(depth)
+ 
+  
 # ---- 外から呼ぶ用のラッパー -------------------------------
 def random_typed_sexp(max_depth=5, want_kind="any", seed=None):
     """
@@ -437,50 +406,49 @@ def _eval(expr, env):
         head = expr[0]
         # 特別扱いの構文
         if isinstance(head, str):
-            if head == "if":
-                return _eval_if(expr, env)
-            elif head == "fn":
-                return _eval_fn(expr, env)
-            elif head in OPS:
-                return _eval_op(head, expr[1:], env)
+            if head in OPS:
+                 return _eval_op(head, expr[1:], env)
             elif head in CMPS:
-                return _eval_cmp(head, expr[1:], env)
-            elif head == "compose":
-                return _eval_compose(expr, env)
-            elif head == "partial":
-                return _eval_partial(expr, env)
-            elif head == "map":
-                return _eval_map(expr, env)
-            elif head == "filter":
-                return _eval_filter(expr, env)
-            elif head == "reduce":
-                return _eval_reduce(expr, env)
-            elif head == "cons":
-                return _eval_cons(expr, env)
-            elif head == "first":
-                return _eval_first(expr, env)
-            elif head == "rest":
-                return _eval_rest(expr, env)
-            elif head == "append":
-                return _eval_append(expr, env)
-            elif head == "len":
-                return _eval_len(expr, env)
+                 return _eval_cmp(head, expr[1:], env)
             else:
+                specialfuncs={
+                    "if":_eval_if,
+                    "fn":_eval_fn,
+                    "compose":_eval_compose,
+                    "partial": _eval_partial,
+                    "map":_eval_map,
+                    "filter":_eval_filter,
+                    "reduce":_eval_reduce,
+                    "cons":_eval_cons,
+                    "first":_eval_first,
+                    "rest":_eval_rest,
+                    "append": _eval_append,
+                    "len":_eval_len,
+                }
             # それ以外は「関数適用」
-                return _eval_app(expr, env)
+            return specialfuncs.get(head,_eval_app)(expr, env)
     # その他はそのまま
     return expr, 0
 
+def _evalarg(arg,env,steps):
+    v, st = _eval(arg, env)
+    steps += st
+    return v,steps
 
+def _evalargs(args,env,steps):
+    vals = []
+    for a in args:
+        v, st = _eval(a, env)
+        steps += st
+        vals.append(v)
+    return vals,steps
+ 
 # --- 個別の構文の評価関数 ---
-def _eval_if(expr, env):
-    # (if cond then else)
+def _eval_if(expr, env):    # (if cond then else)
     if len(expr) != 4:
         return expr, 0
     _, cond_e, then_e, else_e = expr
-    steps = 0
-    cond_v, st = _eval(cond_e, env)
-    steps += st
+    cond_v,steps=_evalarg(cond_e,env,0)
     if isinstance(cond_v, bool):
         steps += 1  # ブランチ選択自体を 1 ステップと数える
         target = then_e if cond_v else else_e
@@ -490,8 +458,7 @@ def _eval_if(expr, env):
     # 条件が bool でなければ部分簡約のまま返す
     return ["if", cond_v, then_e, else_e], steps
 
-def _eval_fn(expr, env):
-    # (fn [params...] body) -> closure
+def _eval_fn(expr, env):    # (fn [params...] body) -> closure
     if len(expr) != 3:
         return expr, 0
     _, params_e, body = expr
@@ -515,12 +482,7 @@ def _eval_fn(expr, env):
     return closure, 1
 
 def _eval_op(op, args, env):
-    steps = 0
-    vals = []
-    for a in args:
-        v, st = _eval(a, env)
-        steps += st
-        vals.append(v)
+    vals,steps=_evalargs(args,env,0)
 
     if all(isinstance(v, int) for v in vals) and vals:
         steps += 1
@@ -549,44 +511,21 @@ def _eval_op(op, args, env):
     return [op] + vals, steps
 
 def _eval_cmp(op, args, env):
-    steps = 0
-    vals = []
-    for a in args:
-        v, st = _eval(a, env)
-        steps += st
-        vals.append(v)
-
+    vals,steps=_evalargs(args,env,0)
     if all(isinstance(v, (int, bool)) for v in vals) and len(vals) >= 2:
         steps += 1
-        if op == "==":
-            res = all(vals[i] == vals[i + 1] for i in range(len(vals) - 1))
-        elif op == "<":
-            res = all(vals[i] < vals[i + 1] for i in range(len(vals) - 1))
-        elif op == ">":
-            res = all(vals[i] > vals[i + 1] for i in range(len(vals) - 1))
-        elif op == "<=":
-            res = all(vals[i] <= vals[i + 1] for i in range(len(vals) - 1))
-        elif op == ">=":
-            res = all(vals[i] >= vals[i + 1] for i in range(len(vals) - 1))
-        else:
-            res = False
-        return res, steps
+        cands={"==":lambda vals:all(vals[i] == vals[i+1] for i in range(len(vals) - 1)),
+               "<": lambda vals:all(vals[i] < vals[i+1] for i in range(len(vals) - 1)),
+               ">": lambda vals:all(vals[i] > vals[i+1] for i in range(len(vals) - 1)),
+               "<=": lambda vals:all(vals[i] <= vals[i+1] for i in range(len(vals) - 1)),
+               ">=": lambda vals:all(vals[i] >= vals[i+1] for i in range(len(vals) - 1)),
+            }
+        return cands.get(op,lambda vals:False)(vals), steps
     return [op] + vals, steps
 
-def _eval_app(expr, env):
-    # (f a1 a2 ...)
-    head = expr[0]
-    args = expr[1:]
-    steps = 0
-
-    f_val, st = _eval(head, env)
-    steps += st
-
-    arg_vals = []
-    for a in args:
-        v, st2 = _eval(a, env)
-        steps += st2
-        arg_vals.append(v)
+def _eval_app(expr, env):  # (f a1 a2 ...)
+    f_val   ,steps=_evalarg(expr[0],env,0) #head f
+    arg_vals,steps =_evalarg(expr[1:],env,0) #args
 
     if is_closure(f_val):
         params = f_val["params"]
@@ -594,20 +533,18 @@ def _eval_app(expr, env):
         if len(arg_vals) != len(params):
             # 引数個数が合わない場合は簡約しない
             return [f_val] + arg_vals, steps
+        #fの評価結果をenvに追加
         new_env = copy_env(f_val["env"])
         for p, v in zip(params, arg_vals):
             new_env[p] = v
-        steps += 1  # β 簡約
-        v, st3 = _eval(body, new_env)
-        steps += st3
-        return v, steps
+        steps += 1  
+        # β 簡約
+        return _evalargs(body,env,steps)
+    else:
+        # 関数でなければこれ以上簡約できない
+        return [f_val] + arg_vals, steps
 
-    # 関数でなければこれ以上簡約できない
-    return [f_val] + arg_vals, steps
-
-
-def _eval_compose(expr, env):
-    # (compose f g)  ~> (fn [x] (f (g x)))
+def _eval_compose(expr, env): # (compose f g)  ~> (fn [x] (f (g x)))
     if len(expr) != 3:
         return expr, 0
     _, f_e, g_e = expr
@@ -616,21 +553,12 @@ def _eval_compose(expr, env):
     v, st = _eval(composed_ast, env)
     return v, st + 1  # compose 自体を 1 ステップとカウント
 
-
-def _eval_partial(expr, env):
-    # (partial f a1 a2 ...)
+def _eval_partial(expr, env):   # (partial f a1 a2 ...)
     if len(expr) < 3:
         return expr, 0
     _, f_e, *arg_es = expr
-    steps = 0
-    f_val, st = _eval(f_e, env)
-    steps += st
-
-    arg_vals = []
-    for a in arg_es:
-        v, st2 = _eval(a, env)
-        steps += st2
-        arg_vals.append(v)
+    f_val,steps=_evalarg(f_e,env,0)
+    arg_vals,steps=_evalarg(arg_es,env,steps)
 
     if not is_closure(f_val):
         return ["partial", f_val] + arg_vals, steps
@@ -774,8 +702,7 @@ def _eval_first(expr, env):
     return ["first", lst_v], steps
 
 
-def _eval_rest(expr, env):
-    # (rest list) -> list
+def _eval_rest(expr, env):  # (rest list) -> list
     if len(expr) != 2:
         return expr, 0
     _, list_e = expr
@@ -788,39 +715,35 @@ def _eval_rest(expr, env):
         return ("list", lst_v[1][1:]), steps
     return ["rest", lst_v], steps
 
-def _eval_append(expr, env):
-    # (append list list) -> list
+def _eval_append(expr, env):    # (append list list) -> list
     if len(expr) != 3:
         return expr, 0
     _, l1_e, l2_e = expr
-    steps = 0
-    l1_v, st = _eval(l1_e, env)
-    steps += st
-    l2_v, st2 = _eval(l2_e, env)
-    steps += st2
+    l1_v, steps = _evalarg(l1_e, env,0)
+    l2_v, steps = _evalarg(l2_e, env,steps)
 
     if (
         isinstance(l1_v, tuple)     and l1_v[0] == "list"
         and isinstance(l2_v, tuple) and l2_v[0] == "list" ):
         steps += 1
         return ("list", l1_v[1] + l2_v[1]), steps
-    return ["append", l1_v, l2_v], steps
+    else:
+        return ["append", l1_v, l2_v], steps
 
-def _eval_len(expr, env):
-    # (len list) -> 値
+def _eval_len(expr, env):    # (len list) -> 値
     if len(expr) != 2:
         return expr, 0
     _, list_e = expr
-    steps = 0
-    lst_v, st = _eval(list_e, env)
-    steps += st
+
+    lst_v, steps = _evalargs(list_e, env,0)
 
     if isinstance(lst_v, tuple) and lst_v[0] == "list":
         steps += 1
         return len(lst_v[1]), steps
-
+    
     return ["len", lst_v], steps
 
+### to output ###
 def sexpr_to_str(expr) -> str:
     """内部表現を S 式文字列に戻す"""
     if isinstance(expr, int):
