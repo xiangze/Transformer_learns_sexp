@@ -64,8 +64,7 @@ def gen_terminal(depth, want_kind="any"):
         return gen_terminal(depth, choice)
 
 # ---- list リテラル -----------------------------------------
-def gen_list_literal(depth):
-    # list ::= [expr,...]
+def gen_list_literal(depth):    # list ::= [expr,...]
     # 深いほど要素数を増やし、各要素も複雑にする
     if depth <= 0:
         n = random.randint(0, 2)
@@ -93,16 +92,14 @@ def gen_if(depth, want_kind):  # (if expr expr expr) -> want_kind
     else_expr, _ = gen_expr(depth - 1, want_kind)
     return f"(if {cond} {then_expr} {else_expr})", want_kind
 
-def gen_fn(depth):
-    # (fn [変数,...] expr) -> closure
+def gen_fn(depth):    # (fn [変数,...] expr) -> closure
     num_params = random.randint(1, 3)
     params = [random_var() for _ in range(num_params)]
     # 関数本体は any 型にしておく
     body, _ = gen_expr(depth - 1, "any")
     return "(fn [" + " ".join(params) + "] " + body + ")", "closure"
 
-def gen_app(depth, want_kind):
-    # (expr expr,...) -> expr (any)
+def gen_app(depth, want_kind):    # (expr expr,...) -> expr (any)
     # 戻り値の静的型はわからないので any 扱い
     # ただし「計算ステップを増やす」ために、関数部は closure を優先
     fun_expr, _ = gen_expr(depth - 1, "closure")
@@ -110,63 +107,53 @@ def gen_app(depth, want_kind):
     args = [gen_expr(depth - 1, "any")[0] for _ in range(arity)]
     return "(" + " ".join([fun_expr] + args) + ")", "any"
 
-def gen_compose(depth):
-    # (compose expr expr) -> closure とみなす
+def gen_compose(depth):    # (compose expr expr) -> closure とみなす
     f1= gen_expr(depth - 1, "closure")[0]
     f2= gen_expr(depth - 1, "closure")[0]   
     return f"(compose {f1} {f2})", "closure"
 
-def gen_partial(depth):
-    # (partial expr expr,...) -> closure とみなす
+def gen_partial(depth):    # (partial expr expr,...) -> closure とみなす
     fun_expr, _ = gen_expr(depth - 1, "closure")
     arity = random.randint(1, 3)
     args = [gen_expr(depth - 1, "any")[0] for _ in range(arity)]
     pf=" ".join([fun_expr] + args)
     return f"(partial {pf})", "closure"
 
-def gen_map(depth):
-    # (map expr list) -> list
+def gen_map(depth):    # (map expr list) -> list
     func_expr, _ = gen_expr(depth - 1, "closure")
     lst_expr, _ = gen_list(depth - 1)
     return f"(map {func_expr} {lst_expr})", "list"
 
-def gen_filter(depth):
-    # (filter expr list) -> list
+def gen_filter(depth):    # (filter expr list) -> list
     pred_expr, _ = gen_expr(depth - 1, "closure")
     lst_expr, _ = gen_list(depth - 1)
     return f"(filter {pred_expr} {lst_expr})", "list"
 
-def gen_reduce(depth, want_kind):
-    # (reduce expr list expr) -> expr (any / want_kind)
+def gen_reduce(depth, want_kind):    # (reduce expr list expr) -> expr (any / want_kind)
     func_expr, _ = gen_expr(depth - 1, "closure")
     lst_expr, _ = gen_list(depth - 1)
     init_expr, _ = gen_expr(depth - 1, want_kind)
     return f"(reduce {func_expr} {lst_expr} {init_expr})", want_kind
 
-def gen_cons(depth):
-    # (cons expr list) -> list
+def gen_cons(depth):    # (cons expr list) -> list
     e_expr, _ = gen_expr(depth - 1, "any")
     lst_expr, _ = gen_list(depth - 1)
     return f"(cons {e_expr} {lst_expr})", "list"
 
-def gen_first(depth):
-    # (first list) -> expr (any)
+def gen_first(depth):    # (first list) -> expr (any)
     lst_expr, _ = gen_list(depth - 1)
     return f"(first {lst_expr})", "any"
 
-def gen_rest(depth):
-    # (rest list) -> list
+def gen_rest(depth):    # (rest list) -> list
     lst_expr, _ = gen_list(depth - 1)
     return f"(rest {lst_expr})", "list"
 
-def gen_append(depth):
-    # (append list list) -> list
+def gen_append(depth):    # (append list list) -> list
     lst1, _ = gen_list(depth - 1)
     lst2, _ = gen_list(depth - 1)
     return f"(append {lst1} {lst2})", "list"
 
-def gen_len(depth):
-    # (len list) -> 値 (int)
+def gen_len(depth):    # (len list) -> 値 (int)
     lst_expr, _ = gen_list(depth - 1)
     return f"(len {lst_expr})", "int"
 
@@ -392,17 +379,14 @@ def _eval(expr, env):
     if isinstance(expr, (int, bool)):# --- atoms ---
         return expr, 0
     elif isinstance(expr, str): # 変数なら環境から
+        #print("環境から変数へ")
         if expr in env:
             return env[expr], 0
         # 未束縛変数 → これ以上簡約しない
         return expr, 0
     # --- list literal / list value ---
     elif isinstance(expr, tuple) and expr and expr[0] == "list":
-        elems = []
-        for e in expr[1]:
-            v, st = _eval(e, env)
-            steps += st
-            elems.append(v)
+        elems ,steps= _evalargs(expr[1],env,steps)
         return ("list", elems), steps
     # --- S 式 (list) ---
     elif isinstance(expr, list):
@@ -431,8 +415,9 @@ def _eval(expr, env):
                     "append": _eval_append,
                     "len":_eval_len,
                 }
-            # それ以外は「関数適用」
             return specialfuncs.get(head,_eval_app)(expr, env)
+        else:# それ以外は「関数適用」
+            return _eval_app(expr,env)
     # その他はそのまま
     return expr, 0
 
