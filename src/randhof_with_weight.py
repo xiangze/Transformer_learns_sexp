@@ -1,6 +1,6 @@
 import argparse        
 import random
-
+import math
 # 値::=0,1,2,3,4,5,6
 # bool::=True,False
 # ops::=+,-,*,/
@@ -373,20 +373,25 @@ def is_closure(v: Any) -> bool:
 def copy_env(env: Dict[str, Any]) -> Dict[str, Any]:
     return dict(env)
 
+def make_new_env(env,params,arg_vals):
+    new_env = copy_env(env)
+    for p, v in zip(params, arg_vals):
+        new_env[p] = v
+    return new_env
+
 def eval_expr(expr, env=None) -> Tuple[Any, int]:
     """
     expr を評価し、(結果, 簡約ステップ数) を返す
     """
     if env is None:
         env = {}
-    value, steps = _eval(expr, env)
-    return value, steps
+    return _eval(expr, env)
 
 def _eval(expr, env):
     steps = 0
     if isinstance(expr, (int, bool)):# --- atoms ---
         return expr, 0
-    elif isinstance(expr, str):      # 変数なら環境から
+    elif isinstance(expr, str): # 変数なら環境から
         if expr in env:
             return env[expr], 0
         # 未束縛変数 → これ以上簡約しない
@@ -406,6 +411,7 @@ def _eval(expr, env):
         head = expr[0]
         # 特別扱いの構文
         if isinstance(head, str):
+            print("head:",head,"expr:",expr)
             if head in OPS:
                  return _eval_op(head, expr[1:], env)
             elif head in CMPS:
@@ -471,15 +477,16 @@ def _eval_fn(expr, env):    # (fn [params...] body) -> closure
 
     if not (isinstance(raw, list) and all(isinstance(p, str) for p in raw)):
         return expr, 0
-
-    closure = {
-        "type": "closure",
-        "params": list(raw),
-        "body": body,
-        "env": copy_env(env),
-    }
-    # クロージャ構築を 1 ステップとカウント
-    return closure, 1
+    else:
+        closure = {
+            "type": "closure",
+            "params": list(raw),
+            "body": body,
+            "env": copy_env(env),
+        }
+        # クロージャ構築を 1 ステップとカウント
+        print("closure",closure)
+        return closure, 1
 
 def _eval_op(op, args, env):
     vals,steps=_evalargs(args,env,0)
@@ -491,15 +498,12 @@ def _eval_op(op, args, env):
         elif op == "-":
             if len(vals) == 1:
                 return -vals[0]%MOD, steps
-            res = vals[0]
-            for x in vals[1:]:
-                res -= x
-            return res%MOD, steps
+            elif(len(vals) == 2):
+                return (vals[0]-vals[1])%MOD ,steps            
+            else:
+                return (vals[0]-sum(-vals[1:]))%MOD ,steps
         elif op == "*":
-            res = 1
-            for x in vals:
-                res *= x
-            return res%MOD, steps
+            return math.prod(vals)%MOD, steps
         elif op == "/":
             res = vals[0]
             for x in vals[1:]:
@@ -527,19 +531,17 @@ def _eval_app(expr, env):  # (f a1 a2 ...)
     f_val   ,steps=_evalarg(expr[0],env,0) #head f
     arg_vals,steps =_evalarg(expr[1:],env,0) #args
 
-    if is_closure(f_val):
+    if is_closure(f_val):#fが関数
         params = f_val["params"]
         body = f_val["body"]
         if len(arg_vals) != len(params):
             # 引数個数が合わない場合は簡約しない
             return [f_val] + arg_vals, steps
         #fの評価結果をenvに追加
-        new_env = copy_env(f_val["env"])
-        for p, v in zip(params, arg_vals):
-            new_env[p] = v
+        new_env=make_new_env(f_val["env"],params,arg_vals)
         steps += 1  
         # β 簡約
-        return _evalargs(body,env,steps)
+        return _evalargs(body,new_env,steps)
     else:
         # 関数でなければこれ以上簡約できない
         return [f_val] + arg_vals, steps
@@ -568,152 +570,110 @@ def _eval_partial(expr, env):   # (partial f a1 a2 ...)
 
     # 引数が十分ならその場で適用
     if len(arg_vals) >= len(params):
-        new_env = copy_env(f_val["env"])
-        for p, v in zip(params, arg_vals):
-            new_env[p] = v
-        steps += 1
-        v, st3 = _eval(body, new_env)
-        steps += st3
-        return v, steps
+        new_env=make_new_env(f_val["env"],params,arg_vals)
+        return _evalarg(body, new_env,steps+1)
+    else:
+        # そうでなければ、残りの引数をとるクロージャを返す
+        remaining_params = params[len(arg_vals) :]
+        closure = {
+            "type": "closure",
+            "params": remaining_params,
+            "body": body,
+            "env": make_new_env(f_val["env"],params,arg_vals),
+        }
+        return closure, steps+1
 
-    # そうでなければ、残りの引数をとるクロージャを返す
-    new_env = copy_env(f_val["env"])
-    for p, v in zip(params, arg_vals):
-        new_env[p] = v
-    remaining_params = params[len(arg_vals) :]
-    closure = {
-        "type": "closure",
-        "params": remaining_params,
-        "body": body,
-        "env": new_env,
-    }
-    steps += 1
-    return closure, steps
-
-
-def _eval_map(expr, env):
-    # (map f list) -> list
+def _eval_map(expr, env):    # (map f list) -> list
     if len(expr) != 3:
         return expr, 0
     _, f_e, list_e = expr
-    steps = 0
-    f_val, st = _eval(f_e, env)
-    steps += st
-    lst_v, st2 = _eval(list_e, env)
-    steps += st2
+    f_val,steps,=_evalarg(f_e,env,0)
+    lst_v,steps,=_evalarg(list_e,env,steps)
 
+    #fが関数でないか残りの引数がlist出ない場合はそのまま返す
     if not is_closure(f_val) or not (isinstance(lst_v, tuple) and lst_v[0] == "list"):
         return ["map", f_val, lst_v], steps
+    else:
+        result_elems = []
+        for elem in lst_v[1]:
+            applied, st3 = _eval_app([f_val, elem], env)
+            steps += st3
+            result_elems.append(applied)
 
-    result_elems = []
-    for elem in lst_v[1]:
-        applied, st3 = _eval_app([f_val, elem], env)
-        steps += st3
-        result_elems.append(applied)
+        return ("list", result_elems), steps+1
 
-    steps += 1
-    return ("list", result_elems), steps
-
-
-def _eval_filter(expr, env):
-    # (filter pred list) -> list
+def _eval_filter(expr, env):    # (filter pred list) -> list
     if len(expr) != 3:
         return expr, 0
     _, pred_e, list_e = expr
-    steps = 0
-    p_val, st = _eval(pred_e, env)
-    steps += st
-    lst_v, st2 = _eval(list_e, env)
-    steps += st2
+    p_val,steps,=_evalarg(pred_e,env,0)
+    lst_v,steps,=_evalarg(list_e,env,steps)
 
     if not is_closure(p_val) or not (isinstance(lst_v, tuple) and lst_v[0] == "list"):
         return ["filter", p_val, lst_v], steps
-
-    result = []
-    for elem in lst_v[1]:
-        cond, st3 = _eval_app([p_val, elem], env)
-        steps += st3
-        if isinstance(cond, bool):
-            if cond:
+    else:
+        result = []
+        for elem in lst_v[1]:
+            cond, st3 = _eval_app([p_val, elem], env)
+            steps += st3
+            if isinstance(cond, bool):
+                if cond:
+                    result.append(elem)
+            else:
+                # 判定できない場合は残しておく
                 result.append(elem)
-        else:
-            # 判定できない場合は残しておく
-            result.append(elem)
 
-    steps += 1
-    return ("list", result), steps
+        return ("list", result), steps+1
 
-
-def _eval_reduce(expr, env):
-    # (reduce f list init) -> expr
+def _eval_reduce(expr, env):  # (reduce f list init) -> expr
     if len(expr) != 4:
         return expr, 0
     _, f_e, list_e, init_e = expr
-    steps = 0
-    f_val, st = _eval(f_e, env)
-    steps += st
-    lst_v, st2 = _eval(list_e, env)
-    steps += st2
-    acc, st3 = _eval(init_e, env)
-    steps += st3
+    f_val, steps = _evalarg(f_e, env,0)
+    lst_v, steps = _evalarg(list_e, env,steps)
+    acc, steps = _evalarg(init_e, env,steps)
 
     if not is_closure(f_val) or not (isinstance(lst_v, tuple) and lst_v[0] == "list"):
         return ["reduce", f_val, lst_v, acc], steps
+    else:
+        for elem in lst_v[1]:
+            acc, st4 = _eval_app([f_val, acc, elem], env)
+            steps += st4
+        return acc, steps+1
 
-    for elem in lst_v[1]:
-        acc, st4 = _eval_app([f_val, acc, elem], env)
-        steps += st4
-
-    steps += 1
-    return acc, steps
-
-
-def _eval_cons(expr, env):
-    # (cons expr list) -> list
+def _eval_cons(expr, env):    # (cons expr list) -> list
     if len(expr) != 3:
         return expr, 0
     _, head_e, list_e = expr
-    steps = 0
-    h_v, st = _eval(head_e, env)
-    steps += st
-    lst_v, st2 = _eval(list_e, env)
-    steps += st2
+    h_v, steps = _evalarg(head_e, env,0)
+    lst_v, steps = _evalarg(list_e, env,steps)
 
     if isinstance(lst_v, tuple) and lst_v[0] == "list":
-        steps += 1
-        return ("list", [h_v] + lst_v[1]), steps
+        return ("list", [h_v] + lst_v[1]), steps+1
+    else:
+        return ["cons", h_v, lst_v], steps
 
-    return ["cons", h_v, lst_v], steps
-
-
-def _eval_first(expr, env):
-    # (first list) -> expr
+def _eval_first(expr, env):    # (first list) -> expr
     if len(expr) != 2:
         return expr, 0
     _, list_e = expr
-    steps = 0
-    lst_v, st = _eval(list_e, env)
-    steps += st
+    lst_v, steps = _evalarg(list_e, env,0)
 
     if isinstance(lst_v, tuple) and lst_v[0] == "list" and lst_v[1]:
-        steps += 1
-        return lst_v[1][0], steps
-
-    return ["first", lst_v], steps
-
+        return lst_v[1][0], steps+1
+    else:
+        return ["first", lst_v], steps
 
 def _eval_rest(expr, env):  # (rest list) -> list
     if len(expr) != 2:
         return expr, 0
     _, list_e = expr
-    steps = 0
-    lst_v, st = _eval(list_e, env)
-    steps += st
+    lst_v, steps = _evalarg(list_e, env,0)
 
     if isinstance(lst_v, tuple) and lst_v[0] == "list" and lst_v[1]:
-        steps += 1
-        return ("list", lst_v[1][1:]), steps
-    return ["rest", lst_v], steps
+        return ("list", lst_v[1][1:]), steps+1
+    else:
+        return ["rest", lst_v], steps
 
 def _eval_append(expr, env):    # (append list list) -> list
     if len(expr) != 3:
@@ -722,11 +682,9 @@ def _eval_append(expr, env):    # (append list list) -> list
     l1_v, steps = _evalarg(l1_e, env,0)
     l2_v, steps = _evalarg(l2_e, env,steps)
 
-    if (
-        isinstance(l1_v, tuple)     and l1_v[0] == "list"
+    if (isinstance(l1_v, tuple)     and l1_v[0] == "list"
         and isinstance(l2_v, tuple) and l2_v[0] == "list" ):
-        steps += 1
-        return ("list", l1_v[1] + l2_v[1]), steps
+        return ("list", l1_v[1] + l2_v[1]), steps+1
     else:
         return ["append", l1_v, l2_v], steps
 
@@ -734,14 +692,12 @@ def _eval_len(expr, env):    # (len list) -> 値
     if len(expr) != 2:
         return expr, 0
     _, list_e = expr
-
     lst_v, steps = _evalargs(list_e, env,0)
 
-    if isinstance(lst_v, tuple) and lst_v[0] == "list":
-        steps += 1
-        return len(lst_v[1]), steps
-    
-    return ["len", lst_v], steps
+    if isinstance(lst_v, list) and lst_v[0] == "list":
+        return len(lst_v[1]), steps+1
+    else:
+        return ["len", lst_v], steps
 
 ### to output ###
 def sexpr_to_str(expr) -> str:
@@ -794,6 +750,13 @@ def eval_demo():  # 簡単なデモ
         "(len [1 2 3 4])",
         "(compose (fn [x] (+ x 1)) (fn [y] (* y 2)))",
     ]
+    samples=[
+        "(len (1 2 3 4))",
+        "(len [1 2 3 4])",
+        "(len (list [1 2 3 4]))",
+        "((fn [x] (x+1)) 2)",
+        "((fn [x,f] (if (== x 0 ) 0 (f x-1))) 4)",
+    ]
     print("demo")
     for s in samples:
         reduce_and_show(s)
@@ -840,16 +803,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--show",  action="store_true", help="show result")
     p.add_argument("--show_short",  action="store_true", help="show short result")
     p.add_argument("--valtype",  type=str, default="int", help="value type to generate (int, bool, etc.)")
+    p.add_argument("--demo",  action="store_true", help="show demo")
     return p.parse_args()
 
 if __name__ == "__main__":
     a=parse_args()
-    S=gen_and_eval(a.n,a.max_depth,seed=42)
-    print("length,")
-    for s in S:
-        print(s[0])
-    for s in S:
-        print(len(s[0]),len(s[1]),s[2],"steps")
-    eval_demo()
+    if(a.demo):
+        eval_demo()
+    else:
+        S=gen_and_eval(a.n,a.max_depth,seed=42)
+        print("length,")
+        for s in S:
+            print(s[0])
+        for s in S:
+            print(len(s[0]),len(s[1]),s[2],"steps")
+    
     #ns = parse_args()
     #gen_and_eval_print(ns)
