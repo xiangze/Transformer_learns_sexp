@@ -404,6 +404,7 @@ def _eval(expr, env):
                 specialfuncs={
                     "if":_eval_if,
                     "fn":_eval_fn,
+                    "let":_eval_let,
                     "compose":_eval_compose,
                     "partial": _eval_partial,
                     "map":_eval_map,
@@ -472,6 +473,32 @@ def _eval_fn(expr, env):    # (fn [params...] body) -> closure
         # クロージャ構築を 1 ステップとカウント
         print("closure",closure)
         return closure, 1
+
+def _eval_let(expr, env):
+    """
+    (let ((x e1) (y e2) ...) body)
+    - e1,e2,... は「外側 env」で評価（並列束縛）
+    - body は拡張 env で評価
+    """
+    if len(expr) != 3:
+        return expr, 0  # あるいは例外
+    _, bindings, body = expr
+
+    if not isinstance(bindings, list):
+        return expr, 0
+    else:  # (1) RHS を外側 env で評価してからまとめて束縛（並列）
+        evaluated = []
+        for b in bindings:
+            if not (isinstance(b, list) and len(b) == 2 and isinstance(b[0], str)):
+                return expr, 0
+            name, rhs = b[0], b[1]
+            v,steps=_evalarg(rhs,env,0)
+            evaluated.append((name, v))
+
+        # (2) env を拡張（外側を壊さない）
+        new_env=make_new_env(env,*evaluated)
+        # (3) body を new_env で評価
+        return _evalarg(body,new_env,steps)
 
 def _eval_op(op, args, env):
     vals,steps=_evalargs(args,env,0)
@@ -741,6 +768,7 @@ def eval_demo():  # 簡単なデモ
         "(len (list [1 2 3 4]))",
         "((fn [x] (x+1)) 2)",
         "((fn [x,f] (if (== x 0 ) 0 (f x-1))) 4)",
+        "((let x 4 y 5 (+ x y)))"
     ]
     print("demo")
     for s in samples:
