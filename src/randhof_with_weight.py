@@ -157,6 +157,12 @@ def gen_len(depth):    # (len list) -> 値 (int)
     lst_expr, _ = gen_list(depth - 1)
     return f"(len {lst_expr})", "int"
 
+def gen_let(depth): #(let bindings body) -> expr (any)
+    names=[random_var() for _ in range(3)]
+    bindings,=[(n,gen_expr(depth - 1,"any")[0]) for n in names]
+    body,_=gen_expr(depth-1 ,"any")
+    return f"(let {bindings},{body})","any"
+
 # list 生成用ヘルパー（list 型を返す式全般）
 def gen_list(depth):
     if depth <= 0:
@@ -221,6 +227,14 @@ def gen_expr(depth, want_kind="any"):
              ("partial", 3),
              ("if_closure", 1),
         ],
+        "withlet":[
+             ("value_terminal", 4),
+             ("op", 6),
+             ("cmp", 3),
+             ("if_int", 3),
+             ("let", 2),
+             ("app", 2),
+        ],
         "kinder":[
              ("value_terminal", 4),
              ("op", 6),
@@ -233,6 +247,7 @@ def gen_expr(depth, want_kind="any"):
              ("cmp", 1),
              ("list", 2),
              ("fn", 2),
+             ("let", 2),
              ("app", 4),
              ("compose", 2),
              ("partial", 2),
@@ -427,14 +442,19 @@ def _evalarg(arg,env,steps):
     steps += st
     return v,steps
 
-def _evalargs(args,env,steps):
+def __evalargs(args,env,steps):
     vals = []
     for a in args:
         v, st = _eval(a, env)
         steps += st
         vals.append(v)
     return vals,steps
- 
+def _evalargs(args,env,steps): 
+    if(isinstance(args,list)):
+        return __evalargs(args,env,steps)
+    else:
+        return _evalarg(args,env,steps)
+    
 # --- 個別の構文の評価関数 ---
 def _eval_if(expr, env):    # (if cond then else)
     if len(expr) != 4:
@@ -513,7 +533,7 @@ def _eval_op(op, args, env):
             elif(len(vals) == 2):
                 return (vals[0]-vals[1])%MOD ,steps            
             else:
-                return (vals[0]-sum(-vals[1:]))%MOD ,steps
+                return (vals[0]-sum(vals[1:]))%MOD ,steps
         elif op == "*":
             return math.prod(vals)%MOD, steps
         elif op == "/":
@@ -548,7 +568,10 @@ def _eval_app(expr, env):  # (f a1 a2 ...)
         body = f_val["body"]
         if len(arg_vals) != len(params):
             # 引数個数が合わない場合は簡約しない
-            return [f_val] + arg_vals, steps
+            if(isinstance(arg_vals,list)):
+                return [f_val] + arg_vals, steps
+            else:
+                return [f_val, arg_vals], steps
         #fの評価結果をenvに追加
         new_env=make_new_env(f_val["env"],params,arg_vals)
         steps += 1  
@@ -556,8 +579,11 @@ def _eval_app(expr, env):  # (f a1 a2 ...)
         return _evalargs(body,new_env,steps)
     else:
         # 関数でなければこれ以上簡約できない
-        return [f_val] + arg_vals, steps
-
+        if(isinstance(arg_vals,list)):
+            return [f_val] + arg_vals, steps
+        else:
+            return [f_val, arg_vals], steps
+        
 def _eval_compose(expr, env): # (compose f g)  ~> (fn [x] (f (g x)))
     if len(expr) != 3:
         return expr, 0
@@ -794,14 +820,14 @@ def gen_and_eval_print(params,filename="sexppair"):
     if seed is not None:
         random.seed(params.seed)
     with open(f"{filename}_n{num_exprs}_d{max_depth}_freevar{target_free}_kind{valtype}.txt", "w") as f:
-        for _ in range(num_exprs):
+        for i in range(num_exprs):
             expr_str, _= random_typed_sexp(max_depth=params.max_depth, want_kind=params.valtype)
             value, steps=totaleval(expr_str)
             if(show):
+                print(i,"-" * 40 )
                 print("Generated expr:", expr_str)
                 print("Evaluated to   :", sexpr_to_str(value))
                 print("Steps taken    :", steps)
-                print("-" * 40 )
             else:
                 print(f"{expr_str}, {sexpr_to_str(value)}, {steps}", file=f)
 import argparse
