@@ -303,7 +303,7 @@ def random_typed_sexp_n(n,max_depth=5,want_kind="int", seed=None):
     # 例: int を返す複雑な式をたくさん生成
     for i in range(n):
         e, k = random_typed_sexp(max_depth=max_depth, want_kind=want_kind)
-        print(k, "=>", e)
+        #print(k, "=>", e)
 
 ######
 import re
@@ -444,19 +444,40 @@ def _evalarg(arg,env,steps):
     steps += st
     return v,steps
 
-def __evalargs(args,env,steps):
-    vals = []
-    for a in args:
-        v, st = _eval(a, env)
-        steps += st
-        vals.append(v)
-    return vals,steps
 def _evalargs(args,env,steps): 
     if(isinstance(args,list)):
-        return __evalargs(args,env,steps)
+        vals = []
+        for a in args:
+            v, st = _eval(a, env)
+            steps += st
+            vals.append(v)
+        return vals,steps
     else:
         return _evalarg(args,env,steps)
-    
+
+def _evalarg2(args1,args2,env,steps=0): 
+    v1,steps=_evalarg(args1,env,steps)
+    v2,steps=_evalarg(args2,env,steps)
+    return v1,v2,steps
+
+def _evalargs2(args1,args2,env,steps): 
+    v1,steps=_evalargs(args1,env,steps)
+    v2,steps=_evalargs(args2,env,steps)
+    return v1,v2,steps
+
+def check_list0(lst_v):
+    return isinstance(lst_v, tuple) and lst_v[0] == "list" 
+
+def check_list(lst_v):
+    return check_list0(lst_v) and lst_v[1]
+
+def _valid(check,answer,invalid,step):
+    if(check):
+        return answer,step+1
+    else:
+        return invalid, step
+
+   
 # --- 個別の構文の評価関数 ---
 def _eval_if(expr, env):    # (if cond then else)
     if len(expr) != 4:
@@ -493,7 +514,7 @@ def _eval_fn(expr, env):    # (fn [params...] body) -> closure
             "env": copy_env(env),
         }
         # クロージャ構築を 1 ステップとカウント
-        print("closure",closure)
+        #print("closure",closure)
         return closure, 1
 
 def _eval_let(expr, env):
@@ -568,17 +589,17 @@ def _eval_app(expr, env):  # (f a1 a2 ...)
     if is_closure(f_val):#fが関数
         params = f_val["params"]
         body = f_val["body"]
-        if len(arg_vals) != len(params):
+        if isinstance(params,list) or len(arg_vals) != len(params):
             # 引数個数が合わない場合は簡約しない
             if(isinstance(arg_vals,list)):
                 return [f_val] + arg_vals, steps
             else:
                 return [f_val, arg_vals], steps
-        #fの評価結果をenvに追加
-        new_env=make_new_env(f_val["env"],params,arg_vals)
-        steps += 1  
-        # β 簡約
-        return _evalargs(body,new_env,steps)
+        else:
+            #fの評価結果をenvに追加
+            new_env=make_new_env(f_val["env"],params,arg_vals)
+            # β 簡約
+            return _evalargs(body,new_env,steps+1)
     else:
         # 関数でなければこれ以上簡約できない
         if(isinstance(arg_vals,list)):
@@ -610,8 +631,7 @@ def _eval_partial(expr, env):   # (partial f a1 a2 ...)
 
     # 引数が十分ならその場で適用
     if len(arg_vals) >= len(params):
-        new_env=make_new_env(f_val["env"],params,arg_vals)
-        return _evalarg(body, new_env,steps+1)
+        return _evalarg(body, make_new_env(f_val["env"],params,arg_vals),steps+1)
     else:
         # そうでなければ、残りの引数をとるクロージャを返す
         remaining_params = params[len(arg_vals) :]

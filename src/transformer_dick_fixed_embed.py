@@ -38,6 +38,7 @@ class ForceWeightsMHA(nn.Module):
         self.mha = mha
         self.average_attn_weights = average_attn_weights
         self.last_attn = None  # (B, H, T, S) など
+        self.batch_first=True
 
     def forward(self, query, key, value, **kwargs):
         # EncoderLayer は need_weights=False で呼んでくるので上書き
@@ -104,7 +105,7 @@ class TransformerRegressor(nn.Module):
             nn.LayerNorm(d_model),
             nn.Linear(d_model, max_len)
         )
-        attn_dict, hooks = attach_encoder_attn_hooks(self.encoder, average_attn_weights=False)
+        attn_dict, hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights=False)
 
     def forward(self,
         input_ids: torch.Tensor,
@@ -172,7 +173,7 @@ if __name__ == "__main__":
                 valid_mask = (1-attn_mask).unsqueeze(-1).float()  # (B,L,1)
                 loss_raw = (yhat - label)**2
                 print("loss",loss_raw.shape,"mask",valid_mask.shape)
-                loss = (loss_raw * valid_mask.squeeze(-1)).sum()/valid_mask.sum()
+                loss = (loss_raw * valid_mask.squeeze(-1)).sum()/valid_mask.sum() ##
             else:
                 yhat=model(input_ids,None)
                 loss=((yhat - label)**2).sum()
