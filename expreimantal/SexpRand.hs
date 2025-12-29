@@ -51,7 +51,6 @@ renderSexp e =
 --------------------------------------------------------------------------------
 -- Parser (あなたの tokenize/parse と同等)
 --------------------------------------------------------------------------------
-
 type Parser = Parsec () String
 
 sc :: Parser ()
@@ -70,10 +69,7 @@ parseSexp input =
     Right x  -> Right x
 
 pExpr :: Parser Expr
-pExpr =
-      pParens
-  <|> pBrackets
-  <|> pAtom
+pExpr = pParens  <|> pBrackets  <|> pAtom
 
 pParens :: Parser Expr
 pParens = do
@@ -175,10 +171,6 @@ weightedChoice items = do
       | k <= w    = a
       | otherwise = pick (k - w) rest
 
---------------------------------------------------------------------------------
--- random_var
---------------------------------------------------------------------------------
-
 randomVar :: State StdGen Expr
 randomVar = do
   u <- randUnit
@@ -187,11 +179,9 @@ randomVar = do
     else do
       n <- randR (0, 9)
       pure (EStr ("v" <> show n))
-
 --------------------------------------------------------------------------------
 -- gen_terminal(depth, want_kind)
 --------------------------------------------------------------------------------
-
 genTerminal :: Int -> Kind -> State StdGen (Expr, Kind)
 genTerminal _ want =
   case want of
@@ -212,21 +202,16 @@ genTerminal _ want =
     KAny -> do
       k <- choice [KInt, KBool, KList, KClosure]
       genTerminal 0 k
-
 --------------------------------------------------------------------------------
 -- gen_list_literal(depth): list ::= [expr ...]
 --------------------------------------------------------------------------------
-
 genListLiteral :: Int -> State StdGen (Expr, Kind)
 genListLiteral depth = do
   n <- if depth <= 0 then randR (0,2) else randR (2,5)
   elems <- replicateM n (fst <$> genExpr (depth - 1) KAny)
   pure (EListVal elems, KList)
 
---------------------------------------------------------------------------------
 -- gen_op / gen_cmp
---------------------------------------------------------------------------------
-
 genOp :: Int -> State StdGen (Expr, Kind)
 genOp depth = do
   op <- EStr <$> choice ops
@@ -241,10 +226,7 @@ genCmp depth = do
   args <- replicateM arity (fst <$> genExpr (depth - 1) KInt)
   pure (EList (op : args), KBool)
 
---------------------------------------------------------------------------------
 -- gen_if
---------------------------------------------------------------------------------
-
 genIf :: Int -> Kind -> State StdGen (Expr, Kind)
 genIf depth want = do
   cond <- fst <$> genExpr (depth - 1) KBool
@@ -252,10 +234,7 @@ genIf depth want = do
   (f,_) <- genExpr (depth - 1) want
   pure (EList [EStr "if", cond, t, f], want)
 
---------------------------------------------------------------------------------
 -- gen_fn
---------------------------------------------------------------------------------
-
 genFn :: Int -> State StdGen (Expr, Kind)
 genFn depth = do
   numParams <- randR (1,3)
@@ -263,10 +242,7 @@ genFn depth = do
   (body,_) <- genExpr (depth - 1) KAny
   pure (EList [EStr "fn", EListVal params, body], KClosure)
 
---------------------------------------------------------------------------------
 -- gen_app
---------------------------------------------------------------------------------
-
 genApp :: Int -> Kind -> State StdGen (Expr, Kind)
 genApp depth _want = do
   (fun,_) <- genExpr (depth - 1) KClosure
@@ -277,7 +253,6 @@ genApp depth _want = do
 --------------------------------------------------------------------------------
 -- compose / partial / map / filter / reduce / cons / first / rest / append / len
 --------------------------------------------------------------------------------
-
 genCompose :: Int -> State StdGen (Expr, Kind)
 genCompose depth = do
   f1 <- fst <$> genExpr (depth - 1) KClosure
@@ -358,8 +333,7 @@ genLen depth = do
   (lst,_) <- genList (depth - 1)
   pure (EList [EStr "len", lst], KInt)
 
--- ★ 修正済み gen_let:
---   (let ((x e1) (y e2) ...) body)
+--  gen_let: (let ((x e1) (y e2) ...) body)
 genLet :: Int -> State StdGen (Expr, Kind)
 genLet depth = do
   names <- replicateM 3 randomVar
@@ -374,10 +348,7 @@ genLet depth = do
   where
     forM = flip mapM
 
---------------------------------------------------------------------------------
 -- gen_expr main (Python gen_expr の候補/重み構造を移植)
---------------------------------------------------------------------------------
-
 genExpr :: Int -> Kind -> State StdGen (Expr, Kind)
 genExpr depth want
   | depth <= 0 = genTerminal depth want
