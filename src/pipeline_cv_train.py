@@ -134,7 +134,7 @@ def genSexps(args):
     #     print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
-        SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind)
+        SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
         with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
             for s in SS:
                 print(f"{s[0]},{s[1]},{s[2]}",file=f)            
@@ -240,8 +240,8 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでTransformer学習・可視化まで一括実行")
     # S-exp params
     parser.add_argument("--n_sexps", type=int, default=5000, help="生成するS式サンプル数")
-    parser.add_argument("--n_free_vars", type=int, default=2, help="各S式の自由変数の数")
-    parser.add_argument("--max_depth", type=int, default=10, help="各S式の最大深さ")
+    parser.add_argument("--n_free_vars", type=int, default=4, help="各S式の自由変数の数")
+    parser.add_argument("--max_depth", type=int, default=4, help="各S式の最大深さ")
     parser.add_argument("--sexpfilename", type=str, default="",help="use sexp from file") #S式をファイルから読み込む
     parser.add_argument("--max_data_num", type=int, default=0)
     parser.add_argument("--want_kind", type=str, default="int")

@@ -28,23 +28,23 @@ import math
 MOD=7
 VALUES = [str(i) for i in range(MOD)]          # 0..6
 BOOLS = ["True", "False"]
-BASE_VARS = ["x", "y", "z", "t"]
+BASE_VARS = ["o","p","q","r","s","t","u","v","x", "y", "z"]
 OPS = ["+", "-", "*", "/"]
 CMPS = ["==", "<", ">", "<=", ">="]
 
 # kind はざっくり 4種類 + any
 # "int", "bool", "list", "closure", "any"
 
-def random_var():
+def random_var(n_free_vars=5):
     # 変数 ::= x,y,z,t,v0,v1,...
     if random.random() < 0.5:
-        return random.choice(BASE_VARS)
+        return random.choice(BASE_VARS[:n_free_vars])
     else:
         return f"v{random.randint(0, 9)}"
 
 
 # ---- 終端生成（深さが尽きたとき用） --------------------------
-def gen_terminal(depth, want_kind="any"):
+def gen_terminal(depth, want_kind="any",n_free_vars=5):
     # 深さ 0 のときに使う、できるだけ型を合わせた終端
     if want_kind == "int":# 値 or 変数を int 扱い
         if random.random() < 0.7:
@@ -194,13 +194,13 @@ def gen_list(depth):
     return kinds.get(kind,gen_list_literal)(depth)
 
 # ---- expr 生成のメイン -------------------------------------
-def gen_expr(depth, want_kind="any"):
+def gen_expr(depth, want_kind="any",n_free_vars=4):
     """
     指定された戻り値「kind」を持つ expr をランダム生成する。
     want_kind: "int", "bool", "list", "closure", "any"
     """
     if depth <= 0:
-        return gen_terminal(depth, want_kind)
+        return gen_terminal(depth, want_kind,n_free_vars)
 
     # 深さがまだある場合は、なるべく「計算ステップが多くなりそうな」コンストラクタを優先
     # kindごとに候補を用意
@@ -289,14 +289,14 @@ def gen_expr(depth, want_kind="any"):
  
   
 # ---- 外から呼ぶ用のラッパー -------------------------------
-def random_typed_sexp(max_depth=5, want_kind="any", seed=None):
+def random_typed_sexp(max_depth=5, want_kind="any", seed=None,n_free_vars=5):
     """
     型と戻り値を意識したランダム S 式生成。
     want_kind: "int", "bool", "list", "closure", "any"
     """
     if seed is not None:
         random.seed(seed)
-    expr, kind = gen_expr(max_depth, want_kind)
+    expr, kind = gen_expr(max_depth, want_kind,n_free_vars=n_free_vars)
     return expr, kind
 
 def random_typed_sexp_n(n,max_depth=5,want_kind="int", seed=None):
@@ -822,12 +822,12 @@ def eval_demo():  # 簡単なデモ
     for s in samples:
         reduce_and_show(s)
 
-def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int", seed=None):
+def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4, seed=None):
     if seed is not None:
         random.seed(seed)
     result=[]
     for _ in range(num_exprs):
-        expr_str, kind = random_typed_sexp(max_depth=max_depth, want_kind=want_kind)
+        expr_str, kind = random_typed_sexp(max_depth=max_depth, want_kind=want_kind,n_free_vars=n_free_vars)
         value, steps=totaleval(expr_str)
         result.append((expr_str,sexpr_to_str(value),steps))
     return result
