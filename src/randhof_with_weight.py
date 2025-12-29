@@ -158,10 +158,13 @@ def gen_len(depth):    # (len list) -> 値 (int)
     return f"(len {lst_expr})", "int"
 
 def gen_let(depth): #(let bindings body) -> expr (any)
-    names=[random_var() for _ in range(3)]
-    bindings,=[(n,gen_expr(depth - 1,"any")[0]) for n in names]
-    body,_=gen_expr(depth-1 ,"any")
-    return f"(let {bindings},{body})","any"
+    names = [random_var() for _ in range(3)]
+    binds = []
+    for n in names:
+        rhs,_ = gen_expr(depth-1,"any")
+        binds.append(f"({n} {rhs})")
+    body,_ = gen_expr(depth-1,"any")
+    return f"(let ({' '.join(binds)}) {body})", "any"
 
 # list 生成用ヘルパー（list 型を返す式全般）
 def gen_list(depth):
@@ -410,7 +413,6 @@ def _eval(expr, env):
         head = expr[0]
         # 特別扱いの構文
         if isinstance(head, str):
-            print("head:",head,"expr:",expr)
             if head in OPS:
                  return _eval_op(head, expr[1:], env)
             elif head in CMPS:
