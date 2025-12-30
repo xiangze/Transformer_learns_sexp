@@ -170,24 +170,22 @@ def plot_vanilla_attention_heatmap(tokenlength,attn_dict,params,out_dir="./",pna
         elif A.ndim == 4:
             plot_heatmap(A[0].mean(dim=0).numpy(), tokens, tokens, f"{name}(avg heads,bacth=0)",fname)
 
-def plot_multi_attention_heatmaps(tokenlength,attn_dict,params,out_dir="./",pname=""):
-    fname=f"{out_dir}/Amat_{pname}.png"
+def plot_multi_attention_heatmaps(attn_dict,params,out_dir="./",pname=""):
     fig,axes=plt.subplots(params["num_layer"],params["nhead"], figsize=(10,10), sharex=True)
-    print(params)
+    #print(params)
     for i,(layer_name, attn) in enumerate(attn_dict.items()):
-        print(i)
         assert(attn.dim() == 4),f"{layer_name}: unexpected shape {attn.shape}"
         B, H, T, S = attn.shape
         fig.suptitle(layer_name)
         for h in range(H):
             ax = axes[i, h]
-            ax.imshow( attn[i, h].detach().cpu(), cmap="viridis",aspect="auto", vmin=0.0)#vmax
+            ax.imshow( attn[0, h].detach().cpu(), cmap="viridis",aspect="auto", vmin=0.0)#vmax
             ax.set_title(f"Head {h}")
             ax.set_xlabel("Key")
             ax.set_ylabel("Query")
-        plt.title("Attention matrix"+pname)
-        plt.tight_layout()
-        plt.savefig(fname)
+    plt.title("Attention matrix"+pname)
+    plt.tight_layout()
+    plt.savefig(f"{out_dir}/Amat_{pname}.png")
 
 def vanilla_demo(tokenlength,out_dir="./",pname=""):    
         # 小さなデモ：nn.TransformerEncoder で hooks により注意重みを取得
@@ -217,7 +215,7 @@ def save_attention_heatmap(model,params,vocab_size,device,pname,out_dir="./"):
         torch.backends.cuda.enable_flash_sdp(False)
         torch.backends.cuda.enable_mem_efficient_sdp(False)
         torch.backends.cuda.enable_math_sdp(True)
-        plot_multi_attention_heatmaps(tokenlength,attn_dict,params,out_dir,pname)
+        plot_multi_attention_heatmaps(attn_dict,params,out_dir,pname)
 
 def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
