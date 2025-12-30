@@ -197,40 +197,40 @@ def pipeline(args,
     print("[4/5] K-fold training/evaluation...")
 
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
-    modelname=f"{pname}.pth"
     model=make_model(params_tr,args.model,vocab_size,args.debug)
     # if(os.path.isfile(modelname)):
     #     model.load_state_dict(torch.load(modelname))
     # else:
     folds = kfold_split(len(pairs), args.kfold, args.seed)
-    for k, (tr_idx, va_idx) in enumerate(folds):
-        os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
-        train_pairs = [pairs[i] for i in tr_idx]
-        val_pairs   = [pairs[i] for i in va_idx]
+    with open(f"log/{pname}.log","w") as fpw:
+        for k, (tr_idx, va_idx) in enumerate(folds):
+            os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
+            train_pairs = [pairs[i] for i in tr_idx]
+            val_pairs   = [pairs[i] for i in va_idx]
 
-        if(not args.use_s2d):
-            ds_train = [np.array(list(t)) for t in zip(*train_pairs)]
-            ds_val   = [np.array(list(t)) for t in zip(*val_pairs)]
-        else:
-            ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
-            ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
-        if(len(ds_train)>0 and len(ds_val)>0):
-            model,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
-                                                    epochs=args.epochs, batch_size=args.batch_size,
-                                                    device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
-            save(model.state_dict(), modelname)
-            # else:
-            #     print("no train,val data")
-            print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
-            print(f"[fold {k+1}/{args.kfold}] visualizing attention (if supported)...")
-    print("[5/5] Plot.")     
-    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,pname,"img/")
+            if(not args.use_s2d):
+                ds_train = [np.array(list(t)) for t in zip(*train_pairs)]
+                ds_val   = [np.array(list(t)) for t in zip(*val_pairs)]
+            else:
+                ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
+                ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
+            if(len(ds_train)>0 and len(ds_val)>0):
+                model,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
+                                                        epochs=args.epochs, batch_size=args.batch_size,
+                                                        device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
+                save(model.state_dict(), f"{pname}_{k}.pth")
+                # else:
+                #     print("no train,val data")
+                print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
+                print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}",file=fpw)
+                print("[5/5] Plot.")     
+                print(f"[fold {k+1}/{args.kfold}] visualizing attention (if supported)...")
+                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,pname,"img/")
    
 
 # ------------------------------
 # Main
 # ------------------------------
-
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでゔぃTransformer学習・可視化まで一括実行")
     # S-exp params
@@ -257,14 +257,28 @@ if __name__=="__main__":
     # others
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--all", action="store_true")
     # old
     parser.add_argument("--use_s2d", action="store_true")
     
     args = parser.parse_args()
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
-    params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename}
-    if(args.sexpfilename!=""):
-        params_sexp["sexpfilename"]=args.sexpfilename
-    params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
-    pipeline(args, params_sexp,params_tr,out_root=out_root)
+    if(args.all):
+        for  n in [8000,10000,20000,50000]:
+            for  depth in [2,3,4]:
+                for  depth in [2,3,4]:
+                    for  head in [2,4,8]:
+                        for  layer in [2,3,4]:
+                            params_sexp:dict={"num":n,"num_free_vars":args.n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename}
+                            params_tr: dict ={"d_model":args.d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+                            try:
+                                pipeline(args, params_sexp,params_tr,out_root=out_root)
+                            except:
+                                print("fail",params_sexp,params_tr)
+    else:
+        params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename}
+        if(args.sexpfilename!=""):
+            params_sexp["sexpfilename"]=args.sexpfilename
+        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+        pipeline(args, params_sexp,params_tr,out_root=out_root)
