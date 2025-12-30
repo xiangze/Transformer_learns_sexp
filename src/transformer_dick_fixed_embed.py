@@ -38,17 +38,23 @@ class ForceWeightsMHA(nn.Module):
         self.mha = mha
         self.average_attn_weights = average_attn_weights
         self.last_attn = None  # (B, H, T, S) など
-        self.batch_first=True
-
+        # TransformerEncoderLayer が参照することがある属性を明示的に持たせる
+        self.batch_first = getattr(mha, "batch_first", False)
+        
     def forward(self, query, key, value, **kwargs):
         # EncoderLayer は need_weights=False で呼んでくるので上書き
         kwargs["need_weights"] = True
         kwargs["average_attn_weights"] = self.average_attn_weights
-
         out, attn = self.mha(query, key, value, **kwargs)
         self.last_attn = attn
         return out, attn
 
+    def __getattr__(self, name):
+        # nn.Module の属性解決を壊さないためのガード
+        if name in ("mha", "average_attn_weights", "last_attn", "batch_first"):
+            return super().__getattr__(name)
+        # その他の属性は元の MultiheadAttention に委譲
+        return getattr(self.mha, name)
 
 def attach_encoder_attn_hooks(
     encoder: nn.TransformerEncoder,
@@ -105,7 +111,7 @@ class TransformerRegressor(nn.Module):
             nn.LayerNorm(d_model),
             nn.Linear(d_model, max_len)
         )
-        attn_dict, hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights=False)
+
 
     def forward(self,
         input_ids: torch.Tensor,
@@ -116,7 +122,9 @@ class TransformerRegressor(nn.Module):
             try:
                 x = self.tok(input_ids) + self.pos(pos_ids)
             except:
-                print("input",input_ids)
+                print("shape",self.tok(input_ids).shape)
+                print("pos",pos_ids.shape)
+                print("pos",pos_ids)
                 print("max input",torch.max(input_ids))
                 print("vocab_size",self.vocab_size)
                 exit()
@@ -138,7 +146,10 @@ class TransformerRegressor(nn.Module):
         if(self.debug):
             util.nanindex({"h":h,"padding_mask":key_padding_mask,"x":x,"cls":cls,"yhat":yhat},"h")
         return yhat
-
+    
+    def add_hook(self):
+        self.attn_dict, self.hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights=False)        
+        return self.attn_dict, self.hooks
 if __name__ == "__main__":
     import torch.optim as optim
     params = {

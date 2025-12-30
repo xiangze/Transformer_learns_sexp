@@ -14,31 +14,18 @@ import time
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import util
-#import generate_sexp_with_variable as gen_mod
-#import evallisp as eval_mod
 import sexp2dick as s2d
 import mysexp2dick as mys2d
 import matrix_visualizer as vis
-#import step_counter
 from torch.utils.data import DataLoader,TensorDataset
 import torch.nn as nn
 import torch.optim as optim
-from torch import tensor
+import torch
+from torch import tensor,save
 import util 
 import randhof_with_weight as hof
 import numpy as np
 #import attentiononly as atn
-# ------------------------------
-# Data pipeline components
-# ------------------------------
-# def eval_S(S: List[List[str]],use_gen:bool ,log_steps: bool) -> Tuple[List[List[str]], Optional[List[int]]]:
-#     if(use_gen):
-#         return gen_mod.hy_eval_program_str(S)
-#     if(log_steps):
-#         return step_counter.eval_with_steps(S) 
-#     else:
-#         return eval_mod.execSexp(S),None
-
 # ------------------------------
 # Dataset helpers
 # ------------------------------
@@ -74,15 +61,7 @@ def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
 # ------------------------------
 import transformer_dick_fixed_embed as fixed
 import Recursive_Ttansformer as recursive
-def train_one_fold(model_kind: str,
-                   ds_train, ds_val,
-                   epochs: int, batch_size: int, vocab_size: int,
-                   params: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096, "use_step_embed": True, "norm_first": True},
-                   device:str="cuda", use_amp=True,evalperi=100,debug=False
-                   ) -> Optional[Any]:
-    
-    print(f"Device: {device} amp:{use_amp}")
-    pin = (device == "cuda")
+def make_model(params,model_kind,vocab_size,debug):
     params["pad_id"]=0
     params["dropout"]=0.2
     params["vocab_size"]=vocab_size
@@ -94,7 +73,15 @@ def train_one_fold(model_kind: str,
     #     model=atn.AttentionOnlyRegressor(params,debug=debug)
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
+    return model
 
+def train_one_fold(model,
+                   ds_train, ds_val,
+                   epochs: int, batch_size: int,
+                   device:str="cuda", use_amp=True,evalperi=100,debug=False
+                   ) -> Optional[Any]:
+    print(f"Device: {device} amp:{use_amp}")
+    pin = (device == "cuda")
     ds_train=[tensor(t) for t in ds_train]
     ds_val  =[tensor(t) for t in ds_val]
     for d in ds_val:
@@ -208,6 +195,13 @@ def pipeline(args,
     pairs,vocab_size=convert(S,ss,args)
     params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
     print("[4/5] K-fold training/evaluation...")
+
+    pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
+    modelname=f"{pname}.pth"
+    model=make_model(params_tr,args.model,vocab_size,args.debug)
+    # if(os.path.isfile(modelname)):
+    #     model.load_state_dict(torch.load(modelname))
+    # else:
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     for k, (tr_idx, va_idx) in enumerate(folds):
         os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
@@ -221,23 +215,24 @@ def pipeline(args,
             ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
             ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
         if(len(ds_train)>0 and len(ds_val)>0):
-            model,best_val_loss,last_val_loss=train_one_fold(args.model, ds_train, ds_val,
-                                                    epochs=args.epochs, batch_size=args.batch_size, vocab_size=vocab_size,params=params_tr,
+            model,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
+                                                    epochs=args.epochs, batch_size=args.batch_size,
                                                     device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
-        else:
-            print("no train,val data")
-        print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
-        print(f"[fold {k+1}/{args.kfold}] visualizing attention (if supported)...")
-        pname="".join([f"{k}_{v}_" for k,v in params_sexp.items()])+"".join([f"{k}_{v}_" for k,v in params_tr.items()])
-        vis.save_vanilla_attention_heatmap(model,params_tr["max_len"],args.output_dir,pname)
-    print("[5/5] Done.")
+            save(model.state_dict(), modelname)
+            # else:
+            #     print("no train,val data")
+            print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
+            print(f"[fold {k+1}/{args.kfold}] visualizing attention (if supported)...")
+    print("[5/5] Plot.")     
+    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,pname,"img/")
+   
 
 # ------------------------------
 # Main
 # ------------------------------
 
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでTransformer学習・可視化まで一括実行")
+    parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでゔぃTransformer学習・可視化まで一括実行")
     # S-exp params
     parser.add_argument("--n_sexps", type=int, default=5000, help="生成するS式サンプル数")
     parser.add_argument("--n_free_vars", type=int, default=4, help="各S式の自由変数の数")
