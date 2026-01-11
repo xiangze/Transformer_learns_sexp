@@ -25,7 +25,9 @@ from torch import tensor,save
 import util 
 import randhof_with_weight as hof
 import numpy as np
-#import attentiononly as atn
+import attentiononly as atn
+import itertools
+
 # ------------------------------
 # Dataset helpers
 # ------------------------------
@@ -69,8 +71,8 @@ def make_model(params,model_kind,vocab_size,debug):
         model=fixed.TransformerRegressor(params,debug=debug)
     elif model_kind == "recursive":
         model=recursive.SharedTransformerRegressor(params,debug=debug)
-    # elif model_kind == "attentiononly":
-    #     model=atn.AttentionOnlyRegressor(params,debug=debug)
+    elif model_kind == "attentiononly":
+        model=atn.AttentionOnlyRegressor(params,debug=debug)
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
     return model
@@ -98,8 +100,8 @@ def train_one_fold(model,
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
-    best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True,peri=evalperi,debug=debug)
-    return model,best_val_loss,last_val_loss
+    train_loss,best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True,peri=evalperi,debug=debug)
+    return model,train_loss,best_val_loss,last_val_loss
 
 def genSexps(args):
     t0 = time.time()
@@ -111,18 +113,10 @@ def genSexps(args):
         print(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s")
         if(args.max_data_num>0):
             S=S[:min(args.max_data_num,len(S))]
-    # elif(args.use_gensexp):
-    #     S=[ gen_mod.gen_program_with_setv_s(max_bind=args.n_free_vars, max_depth=args.max_depth) for s in range(args.n_sexps)]
-    #     print(f"  generated: {len(S)} samples in {time.time()-t0:.2f}s")
-    #     print(S[0])
-    #     print("[2/5] Evaluating S-expressions...")
-    #     t0 = time.time()
-    #     ss, steps = eval_S(S, args.use_gen,args.log_eval_steps)
-    #     print(f"  evaluated: {len(ss)} samples in {time.time()-t0:.2f}s")
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
         SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
-        with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
+        with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
             for s in SS:
                 print(f"{s[0]},{s[1]},{s[2]}",file=f)            
         S, ss, steps = map(list, zip(*SS))
@@ -164,7 +158,7 @@ def convert(S,ss,args):
             masks=maskss[0]
             target_masks=maskss[1]
             d=[S,ss,masks,target_masks]
-            with open(f"sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.csv", "w") as f: 
+            with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.csv", "w") as f: 
                 for p in zip(d):
                     print(p,file=f)
         pairs=[list(p) for p in zip(S,ss,masks,target_masks)]
@@ -183,6 +177,14 @@ def convert(S,ss,args):
 
     return pairs,vocab_size
 
+def pipeline1(args,kind="any"):
+    args.n_sexps=1
+    args.want_kind=kind
+    S,ss,steps=genSexps(args)
+    pairs,vocab_size=convert(S,ss,args)
+    ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
+    return ds[0].to(args.device),ds[2].to(args.device),vocab_size
+
 def pipeline(args,
              params_sexp:dict,
              params_tr: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096},
@@ -198,9 +200,6 @@ def pipeline(args,
 
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
     model=make_model(params_tr,args.model,vocab_size,args.debug)
-    # if(os.path.isfile(modelname)):
-    #     model.load_state_dict(torch.load(modelname))
-    # else:
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
@@ -215,24 +214,56 @@ def pipeline(args,
                 ds_train = fixed.ExprDataset(train_pairs, mode="dyck")
                 ds_val   = fixed.ExprDataset(val_pairs,   mode="dyck")
             if(len(ds_train)>0 and len(ds_val)>0):
-                model,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
-                                                        epochs=args.epochs, batch_size=args.batch_size,
-                                                        device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
-                save(model.state_dict(), f"{pname}_{k}.pth")
-                # else:
-                #     print("no train,val data")
-                print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}")
-                print(f"[fold {k+1}/{args.kfold}] best val loss: {best_val_loss}, last val loss: {last_val_loss}",file=fpw)
+                modelname=f"model/{pname}_{k}.pth"
+                if(os.path.isfile(modelname) and not args.force_train):
+                    model.load_state_dict(torch.load(modelname))
+                    train_loss,best_val_loss,last_val_loss=1,1,1
+                else:
+                    model,train_loss,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
+                                                            epochs=args.epochs, batch_size=args.batch_size,
+                                                            device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
+                save(model.state_dict(), modelname)
+                msg=f"[fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
+                print(msg)
+                print(msg,file=fpw)
                 print("[5/5] Plot.")     
                 print(f"[fold {k+1}/{args.kfold}] visualizing attention (if supported)...")
-                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,pname,"img/")
-   
+                xin,mask,_vocab_size=pipeline1(args,args.want_kind)
+                #assert(_vocab_size==vocab_size)
+                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,pname,x=xin,mask=mask,out_dir="img/")
+
+def run_all(args,out_root):
+    for n,depth,n_free_vars,head,layer,kind in itertools.product(
+        [8000,10000,20000,50000],
+        [2,3,4],
+        [3,4,5],
+        [2,4,8],[2,3,4],
+        ["int","kinder","list","closure","withlet","default"],
+        ):
+        args.want_kind=kind
+        params_sexp:dict={"num":n,"num_free_vars":n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename,"want_kind":kind}
+        params_tr: dict ={"d_model":args.d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+        pipeline(args, params_sexp,params_tr,out_root=out_root)
+
+def run_small(args,out_root):
+    for n,depth,n_free_vars,head,layer,kind in itertools.product(
+        [10000],
+        [2,3],
+        [3],
+        [2,4],
+        [2,3],
+        ["kinder","closure","withlet"]
+        ):
+        args.want_kind=kind
+        params_sexp:dict={"num":n,"num_free_vars":n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename,"want_kind":kind}
+        params_tr: dict ={"d_model":args.d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+        pipeline(args, params_sexp,params_tr,out_root=out_root)
 
 # ------------------------------
 # Main
 # ------------------------------
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでゔぃTransformer学習・可視化まで一括実行")
+    parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでTransformer学習・可視化まで一括実行")
     # S-exp params
     parser.add_argument("--n_sexps", type=int, default=5000, help="生成するS式サンプル数")
     parser.add_argument("--n_free_vars", type=int, default=4, help="各S式の自由変数の数")
@@ -258,6 +289,8 @@ if __name__=="__main__":
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--all", action="store_true")
+    parser.add_argument("--small", action="store_true")
+    parser.add_argument("--force_train", action="store_true")
     # old
     parser.add_argument("--use_s2d", action="store_true")
     
@@ -265,17 +298,9 @@ if __name__=="__main__":
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     if(args.all):
-        for  n in [8000,10000,20000,50000]:
-            for  depth in [2,3,4]:
-                for  depth in [2,3,4]:
-                    for  head in [2,4,8]:
-                        for  layer in [2,3,4]:
-                            params_sexp:dict={"num":n,"num_free_vars":args.n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename}
-                            params_tr: dict ={"d_model":args.d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
-                            try:
-                                pipeline(args, params_sexp,params_tr,out_root=out_root)
-                            except:
-                                print("fail",params_sexp,params_tr)
+        run_all(args,out_root)
+    elif(args.small):
+        run_small(args,out_root)
     else:
         params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename}
         if(args.sexpfilename!=""):

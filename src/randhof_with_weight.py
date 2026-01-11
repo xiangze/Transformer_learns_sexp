@@ -243,6 +243,7 @@ def gen_expr(depth, want_kind="any",n_free_vars=4):
              ("op", 6),
              ("cmp", 3),
              ("if_int", 3),
+             ("let", 2),
              ("app", 2),
         ],
         "default":[

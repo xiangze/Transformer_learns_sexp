@@ -106,4 +106,4 @@ def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,sc
 
         best_val_loss= min(best_val_loss, val_loss)            
     last_val_loss=val_loss
-    return best_val_loss,last_val_loss
+    return train_loss,best_val_loss,last_val_loss

@@ -172,7 +172,6 @@ def plot_vanilla_attention_heatmap(tokenlength,attn_dict,params,out_dir="./",pna
 
 def plot_multi_attention_heatmaps(attn_dict,params,out_dir="./",pname=""):
     fig,axes=plt.subplots(params["num_layer"],params["nhead"], figsize=(10,10), sharex=True)
-    #print(params)
     for i,(layer_name, attn) in enumerate(attn_dict.items()):
         assert(attn.dim() == 4),f"{layer_name}: unexpected shape {attn.shape}"
         B, H, T, S = attn.shape
@@ -203,15 +202,17 @@ def vanilla_demo(tokenlength,out_dir="./",pname=""):
         torch.backends.cuda.enable_math_sdp(True)
         plot_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir,pname="sexp_")
 
-def save_attention_heatmap(model,params,vocab_size,device,pname,out_dir="./"):
+def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./"):
         tokenlength=params["max_len"] 
-        attn_dict,hook = model.add_hook()
-        x = torch.randint(vocab_size,(tokenlength,params["d_model"])).to(device) # ダミー入力(int)
+        attn_dict,_ = model.add_hook()
+        if(x is None):
+            x = torch.randint(vocab_size,(tokenlength,params["d_model"])).to(device) # ダミー入力(int)
+            mask=None
         #print("x",x.dim(),x.shape)
         # 実行（need_weights=True は内部で指定済みの実装差があるので hook ベース）
         #model.eval()
         with torch.no_grad():
-            model(x) #mask=None, src_key_padding_mask=None)
+            model(x,mask)#, src_key_padding_mask=None)
         torch.backends.cuda.enable_flash_sdp(False)
         torch.backends.cuda.enable_mem_efficient_sdp(False)
         torch.backends.cuda.enable_math_sdp(True)

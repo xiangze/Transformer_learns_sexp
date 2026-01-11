@@ -1,7 +1,7 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
-
+import transformer_dick_fixed_embed as tr
 
 class AttentionOnlyBlock(nn.Module):
     """Multi-Head Self-Attention + 残差 + LayerNorm（MLPなし）"""
