@@ -83,6 +83,39 @@ def attach_encoder_attn_hooks(
 
     return attn_by_layer, handles
 
+def attach_all_encoder_attn_hooks(
+    model: nn.Module,
+    average_attn_weights: bool = False,
+) -> Tuple[Dict[str, Dict[str, torch.Tensor]], List[torch.utils.hooks.RemovableHandle]]:
+    """
+    model 内に存在する nn.TransformerEncoder を全て見つけて
+    attach_encoder_attn_hooks を適用する。
+
+    Returns:
+      attn_maps_by_encoder:
+        {
+          "<module_path_to_encoder>": {
+             "layer0.self_attn": attn_tensor,
+             ...
+          },
+          ...
+        }
+      handles: hook の handle 一式（後で remove する用）
+    """
+    attn_maps_by_encoder: Dict[str, Dict[str, torch.Tensor]] = {}
+    handles_all: List[torch.utils.hooks.RemovableHandle] = []
+
+    for module_path, module in model.named_modules():
+        if isinstance(module, nn.TransformerEncoder):
+            attn_by_layer, handles = attach_encoder_attn_hooks(
+                module,
+                average_attn_weights=average_attn_weights,
+            )
+            attn_maps_by_encoder[module_path] = attn_by_layer
+            handles_all.extend(handles)
+
+    return attn_maps_by_encoder, handles_all
+
 # =========================================================
 # Transformer 回帰モデル
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
@@ -94,7 +127,7 @@ class TransformerRegressor(nn.Module):
         d_model=params["d_model"]
         nhead=params["nhead"]
         num_layers = params["num_layer"]
-        dim_ff= params["dim_ff"] 
+        dim_ff= params["dim_ff"]
         max_len= params["max_len"]
         self.pad_id=params["pad_id"]
         dropout=params["dropout"]
@@ -129,7 +162,7 @@ class TransformerRegressor(nn.Module):
                 print("vocab_size",self.vocab_size)
                 exit()
         else:
-            x = self.tok(input_ids) + self.pos(pos_ids)
+            x = self.tok(input_ids) + self.pos(pos_ids)  #a
 
         if attn_mask is None:
             key_padding_mask = (input_ids == self.pad_id)

@@ -216,13 +216,22 @@ def pipeline(args,
             if(len(ds_train)>0 and len(ds_val)>0):
                 modelname=f"model/{pname}_{k}.pth"
                 if(os.path.isfile(modelname) and not args.force_train):
-                    model.load_state_dict(torch.load(modelname))
+                    try:
+                        model.load_state_dict(torch.load(modelname))
+                    except:
+                        ckpt = torch.load(modelname, map_location=args.device)#"cpu")
+                        state_dict = ckpt if isinstance(ckpt, dict) and "tok.weight" in ckpt else ckpt["state_dict"]
+                        vocab_size, d_model = state_dict["tok.weight"].shape
+                        #print("ckpt vocab_size, d_model =", vocab_size, d_model)
+                        model=make_model(params_tr,args.model,vocab_size,args.debug)
+                        model.load_state_dict(state_dict, strict=True)
+                        model=model.to(args.device)
                     train_loss,best_val_loss,last_val_loss=1,1,1
                 else:
                     model,train_loss,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
                                                             epochs=args.epochs, batch_size=args.batch_size,
                                                             device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
-                save(model.state_dict(), modelname)
+                    save(model.state_dict(), modelname)
                 msg=f"[fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
                 print(msg)
                 print(msg,file=fpw)

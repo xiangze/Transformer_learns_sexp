@@ -7,6 +7,7 @@ from transformers import AutoModel, AutoTokenizer, AutoConfig
 from typing import Dict, List, Tuple
 import transformer_dick_fixed_embed as tr
 import seaborn as sns
+import numpy as np
 
 def plot_heatmap(matrix, xlabels, ylabels, title, out_path):
     print(f"plot heatmap {out_path}")
@@ -170,19 +171,27 @@ def plot_vanilla_attention_heatmap(tokenlength,attn_dict,params,out_dir="./",pna
         elif A.ndim == 4:
             plot_heatmap(A[0].mean(dim=0).numpy(), tokens, tokens, f"{name}(avg heads,bacth=0)",fname)
 
-def plot_multi_attention_heatmaps(attn_dict,params,out_dir="./",pname=""):
+def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",pname=""):
     fig,axes=plt.subplots(params["num_layer"],params["nhead"], figsize=(10,10), sharex=True)
-    for i,(layer_name, attn) in enumerate(attn_dict.items()):
-        assert(attn.dim() == 4),f"{layer_name}: unexpected shape {attn.shape}"
-        B, H, T, S = attn.shape
-        fig.suptitle(layer_name)
-        for h in range(H):
-            ax = axes[i, h]
-            ax.imshow( attn[0, h].detach().cpu(), cmap="viridis",aspect="auto", vmin=0.0)#vmax
-            ax.set_title(f"Head {h}")
-            ax.set_xlabel("Key")
-            ax.set_ylabel("Query")
-    plt.title("Attention matrix"+pname)
+    axes = np.atleast_2d(axes)
+    assert(len(attn_maps_by_encoder)>0)
+    for e,(enc_path, attn_by_layer) in enumerate(attn_maps_by_encoder.items()):
+        print("Encoder:", enc_path)
+        for i,(layer_name, attn) in enumerate(attn_by_layer.items()):
+            print(layer_name, attn.shape)
+            assert(attn.dim() == 4),f"{layer_name}: unexpected shape {attn.shape}"
+            B, H, T, S = attn.shape
+            print(layer_name, attn.shape)
+            fig.suptitle(layer_name)
+            for h in range(H):
+                ax = axes[i, h]
+                x=attn[0, h].detach().cpu()
+                ax.imshow( x, cmap="viridis",aspect="auto", vmin=0.0)#vmax
+                print(layer_name, h, float(x.min()), float(x.max()), torch.isnan(x).any().item(), torch.isinf(x).any().item())
+                ax.set_title(f"Head {h}")
+                ax.set_xlabel("Key")
+                ax.set_ylabel("Query")
+    fig.suptitle("Attention matrix"+pname)
     plt.tight_layout()
     plt.savefig(f"{out_dir}/Amat_{pname}.png")
 
@@ -200,23 +209,28 @@ def vanilla_demo(tokenlength,out_dir="./",pname=""):
         torch.backends.cuda.enable_flash_sdp(False)
         torch.backends.cuda.enable_mem_efficient_sdp(False)
         torch.backends.cuda.enable_math_sdp(True)
-        plot_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir,pname="sexp_")
+        #plot_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir,pname="sexp_")
+        plot_vanilla_attention_heatmap(attn_dict,out_dir,pname="sexp_")
 
 def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./"):
         tokenlength=params["max_len"] 
-        attn_dict,_ = model.add_hook()
+        #attn_dict,_ = tr.attach_encoder_attn_hooks(model)
+        model.eval()
+        attn_maps_by_encoder, handles = tr.attach_all_encoder_attn_hooks(model,average_attn_weights=False)# head ごとに取りたいなら False
         if(x is None):
             x = torch.randint(vocab_size,(tokenlength,params["d_model"])).to(device) # ダミー入力(int)
             mask=None
         #print("x",x.dim(),x.shape)
-        # 実行（need_weights=True は内部で指定済みの実装差があるので hook ベース）
         #model.eval()
-        with torch.no_grad():
-            model(x,mask)#, src_key_padding_mask=None)
-        torch.backends.cuda.enable_flash_sdp(False)
-        torch.backends.cuda.enable_mem_efficient_sdp(False)
-        torch.backends.cuda.enable_math_sdp(True)
-        plot_multi_attention_heatmaps(attn_dict,params,out_dir,pname)
+        # forward を 1 回回す（ここで辞書が埋まる）
+        model(x,mask)
+        # torch.backends.cuda.enable_flash_sdp(False)
+        # torch.backends.cuda.enable_mem_efficient_sdp(False)
+        # torch.backends.cuda.enable_math_sdp(True)
+        plot_multi_attention_heatmaps(attn_maps_by_encoder,params,out_dir,pname)
+        # 終わったら hook を外す（重要）
+        for h in handles:
+            h.remove()
 
 def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
