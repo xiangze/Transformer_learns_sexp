@@ -74,10 +74,10 @@ def gen_list_literal(depth):    # list ::= [expr,...]
     return "[" + " ".join(elems) + "]", "list"
 
 # ---- 各コンストラクタ（型つき） ----------------------------
-def gen_op(depth):   # (opsymbols expr,... ) -> 値 (int)
+def gen_op(depth,want_kind="int"):   # (opsymbols expr,... ) -> 値 (int)
     op = random.choice(OPS)
     arity = random.randint(2, 4)
-    args = [gen_expr(depth - 1, "int")[0] for _ in range(arity)]
+    args = [gen_expr(depth - 1, want_kind)[0] for _ in range(arity)]
     return "(" + " ".join([op] + args) + ")", "int"
 
 def gen_cmp(depth):  # (cmpsymbols expr,... ) -> bool
@@ -205,6 +205,18 @@ def gen_expr(depth, want_kind="any",n_free_vars=4):
     # 深さがまだある場合は、なるべく「計算ステップが多くなりそうな」コンストラクタを優先
     # kindごとに候補を用意
     kind_ccanditates={
+        "arith":[
+             ("op", 2),
+        ],
+        "meta":[
+             ("op", 3),
+             ("list", 3),
+             ("fn", 2),
+             ("let", 1),
+             ("app", 1),
+             ("map", 1),                        
+             ("reduce", 1),                        
+        ],
         "int":[
              ("value_terminal", 1),
              ("op", 4),
@@ -264,31 +276,68 @@ def gen_expr(depth, want_kind="any",n_free_vars=4):
     kinds = [c[0] for c in candidates]
     weights = [c[1] for c in candidates]
     k = random.choices(kinds, weights=weights, k=1)[0]
+
     cases={
+    "value_terminal":lambda d:gen_terminal(d, "int"),
+    "bool_terminal":lambda d:gen_terminal(d, "bool"),
+    "op":gen_op,
+    "cmp":gen_cmp,
+    "len":gen_len,
+    "fn":gen_fn,
+    "compose":gen_compose,
+    "partial":gen_partial,
+    "list":gen_list,
+    "map":gen_map,
+    "filter":gen_filter,
+    "reduce":lambda d: gen_reduce(d, "any" if want_kind == "any" else want_kind),
+    "first":gen_first,
+    "app":lambda d:gen_app(d, want_kind),
+    # if 系は want_kind に応じて
+    "if_int": lambda d:gen_if(d, "int"),
+    "if_bool":lambda d:gen_if(d, "bool"),
+    "if_list":lambda d:gen_if(d, "list"),
+    "if_closure":lambda d:gen_if(d, "closure"),
+    "if_any":lambda d:gen_if(d, "any"),
+    }
+    return cases.get(k,lambda d:gen_terminal(d, want_kind))(depth)
+ 
+def gen_expr_simple(depth, want_kind="arith",n_free_vars=4):
+    """
+    指定された戻り値「kind」を持つ expr をランダム生成する。
+    want_kind: "op", "app", "map", "reduce"
+    """
+    if depth <= 0:
+        return gen_terminal(depth, want_kind,n_free_vars)
+     # 深さがまだある場合は、なるべく「計算ステップが多くなりそうな」コンストラクタを優先
+    # kindごとに候補を用意
+    if(want_kind=="arith"):
+        return gen_op(depth,"int")        
+    elif(want_kind=="meta"):
+        canditates={
+                ("op", 3),
+                ("list", 3),
+                ("fn", 2),
+                ("let", 1),
+                ("app", 1),
+                ("map", 1),                        
+                ("reduce", 1),                        
+        }
+        cases={
         "value_terminal":lambda d:gen_terminal(d, "int"),
-        "bool_terminal":lambda d:gen_terminal(d, "bool"),
         "op":gen_op,
-        "cmp":gen_cmp,
         "len":gen_len,
-        "fn":gen_fn,
-        "compose":gen_compose,
-        "partial":gen_partial,
+        "fn":gen_fn, #closure
         "list":gen_list,
         "map":gen_map,
         "filter":gen_filter,
         "reduce":lambda d: gen_reduce(d, "any" if want_kind == "any" else want_kind),
-        "first":gen_first,
         "app":lambda d:gen_app(d, want_kind),
-        # if 系は want_kind に応じて
-        "if_int": lambda d:gen_if(d, "int"),
-        "if_bool":lambda d:gen_if(d, "bool"),
-        "if_list":lambda d:gen_if(d, "list"),
-        "if_closure":lambda d:gen_if(d, "closure"),
-        "if_any":lambda d:gen_if(d, "any"),
         }
-    return cases.get(k,lambda d:gen_terminal(d, want_kind))(depth)
- 
-  
+        k=random.choices([c[0] for c in canditates],[c[1] for c in canditates], k=1)[0]
+        return cases.get(k,lambda d:gen_terminal(d, want_kind))(depth)       
+    else:
+        return gen_expr(depth,want_kind,n_free_vars)
+
 # ---- 外から呼ぶ用のラッパー -------------------------------
 def random_typed_sexp(max_depth=5, want_kind="any", seed=None,n_free_vars=5):
     """
@@ -299,12 +348,6 @@ def random_typed_sexp(max_depth=5, want_kind="any", seed=None,n_free_vars=5):
         random.seed(seed)
     expr, kind = gen_expr(max_depth, want_kind,n_free_vars=n_free_vars)
     return expr, kind
-
-def random_typed_sexp_n(n,max_depth=5,want_kind="int", seed=None):
-    # 例: int を返す複雑な式をたくさん生成
-    for i in range(n):
-        e, k = random_typed_sexp(max_depth=max_depth, want_kind=want_kind)
-        #print(k, "=>", e)
 
 ######
 import re
@@ -811,9 +854,7 @@ def eval_demo():  # 簡単なデモ
         "(len [1 2 3 4])",
         "(compose (fn [x] (+ x 1)) (fn [y] (* y 2)))",
     ]
-    samples=[
-        "(len (1 2 3 4))",
-        "(len [1 2 3 4])",
+    samples_=[
         "(len (list [1 2 3 4]))",
         "((fn [x] (x+1)) 2)",
         "((fn [x,f] (if (== x 0 ) 0 (f x-1))) 4)",
@@ -829,6 +870,16 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4, seed=N
     result=[]
     for _ in range(num_exprs):
         expr_str, kind = random_typed_sexp(max_depth=max_depth, want_kind=want_kind,n_free_vars=n_free_vars)
+        value, steps=totaleval(expr_str)
+        result.append((expr_str,sexpr_to_str(value),steps))
+    return result
+
+def gen_and_eval_simple(num,max_depth,seed=42, want_kind="arith",n_free_vars=4):
+    if seed is not None:
+        random.seed(seed)
+    result=[]
+    for _ in range(num):
+        expr_str, _ = gen_expr_simple(max_depth, want_kind,n_free_vars=n_free_vars)
         value, steps=totaleval(expr_str)
         result.append((expr_str,sexpr_to_str(value),steps))
     return result
@@ -866,12 +917,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--show_short",  action="store_true", help="show short result")
     p.add_argument("--valtype",  type=str, default="int", help="value type to generate (int, bool, etc.)")
     p.add_argument("--demo",  action="store_true", help="show demo")
+    p.add_argument("--simple",  action="store_true", help="simple kinds(arith, meta)")
     return p.parse_args()
 
 if __name__ == "__main__":
     a=parse_args()
     if(a.demo):
         eval_demo()
+    elif(a.simple):
+        S=gen_and_eval_simple(a.n,a.max_depth,seed=42, want_kind="arith",n_free_vars=4)
+        print("length,")
+        for s in S:
+            print(s[0])
+        for s in S:
+            print(len(s[0]),len(s[1]),s[2],"steps")
     else:
         S=gen_and_eval(a.n,a.max_depth,seed=42)
         print("length,")
