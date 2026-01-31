@@ -115,7 +115,10 @@ def genSexps(args):
             S=S[:min(args.max_data_num,len(S))]
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
-        SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
+        if(args.want_kind=="simple" or args.want_kind=="meta"):
+            SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
+        else:
+            SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
         with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
             for s in SS:
                 print(f"{s[0]},{s[1]},{s[2]}",file=f)            
