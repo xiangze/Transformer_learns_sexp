@@ -116,7 +116,7 @@ def genSexps(args):
     else:
         print("[2/5] Evaluating Higher Order S-expressions...")
         if(args.want_kind=="simple" or args.want_kind=="meta"):
-            SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
+            SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars,debug=args.debug)
         else:
             SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
         with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
@@ -202,6 +202,7 @@ def pipeline(args,
     print("[4/5] K-fold training/evaluation...")
 
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
+    pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])
     model=make_model(params_tr,args.model,vocab_size,args.debug)
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     with open(f"log/{pname}.log","w") as fpw:
@@ -264,7 +265,8 @@ def run_small(args,out_root):
         [3],
         [2,4],
         [2,3],
-        ["kinder","closure","withlet"]
+        ["simple","meta"],
+        #["kinder","closure","withlet"]
         ):
         args.want_kind=kind
         params_sexp:dict={"num":n,"num_free_vars":n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename,"want_kind":kind}

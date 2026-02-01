@@ -176,9 +176,8 @@ def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",
     axes = np.atleast_2d(axes)
     assert(len(attn_maps_by_encoder)>0)
     for e,(enc_path, attn_by_layer) in enumerate(attn_maps_by_encoder.items()):
-        print("Encoder:", enc_path)
+        #print("Encoder:", enc_path)
         for i,(layer_name, attn) in enumerate(attn_by_layer.items()):
-            print(layer_name, attn.shape)
             assert(attn.dim() == 4),f"{layer_name}: unexpected shape {attn.shape}"
             B, H, T, S = attn.shape
             print(layer_name, attn.shape)
@@ -187,7 +186,11 @@ def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",
                 ax = axes[i, h]
                 x=attn[0, h].detach().cpu()
                 ax.imshow( x, cmap="viridis",aspect="auto", vmin=0.0)#vmax
-                print(layer_name, h, float(x.min()), float(x.max()), torch.isnan(x).any().item(), torch.isinf(x).any().item())
+                #print(layer_name, h, float(x.min()), float(x.max()), torch.isnan(x).any().item(), torch.isinf(x).any().item())
+                assert(not torch.isnan(x).any().item())
+                assert(not torch.isinf(x).any().item())
+                print(f"layer_name:{layer_name},head:{h},min value:{float(x.min())},max value:{float(x.max())}")
+                 
                 ax.set_title(f"Head {h}")
                 ax.set_xlabel("Key")
                 ax.set_ylabel("Query")

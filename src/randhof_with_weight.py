@@ -83,7 +83,7 @@ def gen_list_literal_simple(depth,want_kind="int0"):    # list ::= [expr,...]
         n = random.randint(0, 2)
     else:
         n = random.randint(2, 5)
-    elems = [gen_terminal(depth - 1, "int")[0] for _ in range(n)]
+    elems = [gen_terminal(depth - 1, want_kind)[0] for _ in range(n)]
     return "[" + " ".join(elems) + "]", "list"
 
 # ---- 各コンストラクタ（型つき） ----------------------------
@@ -342,16 +342,17 @@ def gen_meta_simple(depth, want_kind="arith",n_free_vars=4):
     if(meta=="map" or meta=="filter"): 
         #"(map (fn [x] (+ x 1)) [1 2 3])",
         #"(filter (fn [x] (> x 2)) [1 2 3 4])",
-        arity = 1 #random.randint(2, 4)
-        args = ["fn [x] "]+ [gen_op_simple(depth - 1, want_kind)[0] for _ in range(arity)]
-        return "(" + meta+" (".join([op] + args) +") "+gen_list_literal_simple(depth-1)[0] +")", "int"
+        arity = 1 
+        n=random.randint(2, 4)
+        #return f"({meta} fn [x] {gen_expr(depth-1)} )" +gen_list_literal_simple(depth-1)[0] +")","int"
+        return f"({meta} fn [x] ({op} x {n}) " +gen_list_literal_simple(depth-1)[0] +" )","int"
     elif(meta=="reduce"):      
         initval=gen_terminal_int0()
         #"(reduce (fn [a b] (+ a b)) [1 2 3] 0)",
         try:
-            return "(" + " ".join([meta,"(fn [x y] (",f"({op} x y)"]+gen_list_literal_simple(depth-1)[0] + f"{initval})"), "int"
+            return f"( {meta} (fn [x y] (",f"({op} x y) {gen_list_literal_simple(depth-1)[0]} {initval})", "int"
         except:
-            print( " ".join([meta,"(fn [x y] (",f"({op} x y)"],gen_list_literal_simple(depth-1)[0] + f"{initval})" ))
+            print(f"( {meta} (fn [x y] (",f"({op} x y) {gen_list_literal_simple(depth-1)[0]} {initval})")
             exit()
     elif(meta=="app"):
         #(app (f x) (g x))
@@ -363,11 +364,11 @@ def gen_meta_simple(depth, want_kind="arith",n_free_vars=4):
         print(f"not supported {want_kind}")
         exit()
 
-def gen_expr_simple(depth, want_kind="arith",n_free_vars=4):
-    if(want_kind=="arith"):
-        return gen_op_simple(depth, want_kind=want_kind)
-    else:
+def gen_expr_simple(depth, want_kind="arith",seed=42,n_free_vars=4):
+    if(want_kind=="meta"):
         return gen_meta_simple(depth, want_kind=want_kind,n_free_vars=4)
+    else:    
+        return gen_op_simple(depth, want_kind=want_kind)
     
 # ---- 外から呼ぶ用のラッパー -------------------------------
 def random_typed_sexp(max_depth=5, want_kind="any", seed=None,n_free_vars=5):
@@ -902,7 +903,9 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4,
         random.seed(seed)
     result=[]
     for _ in range(num_exprs):
-        expr_str, kind = gen(max_depth, want_kind=want_kind,n_free_vars=n_free_vars)
+        expr_str, kind = gen(max_depth, want_kind,seed,n_free_vars)
+        if(debug):
+            print(expr_str)
         value, steps=totaleval(expr_str)
         result.append((expr_str,sexpr_to_str(value),steps))
     return result
