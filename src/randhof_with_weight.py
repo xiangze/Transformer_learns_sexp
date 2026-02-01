@@ -344,24 +344,22 @@ def gen_meta_simple(depth, want_kind="arith",n_free_vars=4):
         #"(filter (fn [x] (> x 2)) [1 2 3 4])",
         arity = 1 
         n=random.randint(2, 4)
-        #return f"({meta} fn [x] {gen_expr(depth-1)} )" +gen_list_literal_simple(depth-1)[0] +")","int"
-        return f"({meta} fn [x] ({op} x {n}) " +gen_list_literal_simple(depth-1)[0] +" )","int"
+        s=f"({meta} fn [x] ({op} x {n}) " +gen_list_literal_simple(depth-1)[0] +" )"
+        #print(s)
+        return s,"int"
     elif(meta=="reduce"):      
         initval=gen_terminal_int0()
         #"(reduce (fn [a b] (+ a b)) [1 2 3] 0)",
-        try:
-            return f"( {meta} (fn [x y] (",f"({op} x y) {gen_list_literal_simple(depth-1)[0]} {initval})", "int"
-        except:
-            print(f"( {meta} (fn [x y] (",f"({op} x y) {gen_list_literal_simple(depth-1)[0]} {initval})")
-            exit()
+        s=f"({meta} fn [x y] ( {op} x y) {gen_list_literal_simple(depth-1)[0]} {initval})"
+        return s,"int"
     elif(meta=="app"):
-        #(app (f x) (g x))
-        pass
+        print(f"not supported {want_kind} {meta}")
+        exit()
     elif(meta=="comose"):
-        pass
-        # "(compose (fn [x] (+ x 1)) (fn [y] (* y 2)))",
+        print(f"not supported {want_kind} {meta}")
+        exit()
     else:
-        print(f"not supported {want_kind}")
+        print(f"not supported {want_kind} {meta}")
         exit()
 
 def gen_expr_simple(depth, want_kind="arith",seed=42,n_free_vars=4):
@@ -903,7 +901,8 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4,
         random.seed(seed)
     result=[]
     for _ in range(num_exprs):
-        expr_str, kind = gen(max_depth, want_kind,seed,n_free_vars)
+        expr_str, kind = gen_expr_simple(max_depth, want_kind, seed, n_free_vars)
+        #expr_str, kind = gen(max_depth, want_kind, seed, n_free_vars)
         if(debug):
             print(expr_str)
         value, steps=totaleval(expr_str)
