@@ -30,6 +30,8 @@ VALUES = [str(i) for i in range(MOD)]          # 0..6
 BOOLS = ["True", "False"]
 BASE_VARS = ["o","p","q","r","s","t","u","v","x", "y", "z"]
 OPS = ["+", "-", "*", "/"]
+OPS_ADD = ["+", "-"]
+OPS_RING = ["+", "-"]
 CMPS = ["==", "<", ">", "<=", ">="]
 
 # kind はざっくり 4種類 + any
@@ -324,7 +326,12 @@ def gen_op_simple(depth, want_kind="arith"):
     if(depth==0):
         return gen_terminal_int0()
     else:
-        op = random.choice(OPS)
+        if(want_kind=="add"):
+            op = random.choice(OPS_ADD)
+        elif(want_kind=="ring"):
+            op = random.choice(OPS_RING)
+        else:
+            op = random.choice(OPS)
         arity = random.randint(2, 4)
         args = [gen_op_simple(depth - 1, want_kind)[0] for _ in range(arity)]
         return "(" + " ".join([op] + args) + ")", "int"
@@ -355,7 +362,7 @@ def gen_meta_simple(depth, want_kind="arith",n_free_vars=4):
     elif(meta=="app"):
         print(f"not supported {want_kind} {meta}")
         exit()
-    elif(meta=="comose"):
+    elif(meta=="compose"):
         print(f"not supported {want_kind} {meta}")
         exit()
     else:
@@ -952,8 +959,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--show_short",  action="store_true", help="show short result")
     p.add_argument("--valtype",  type=str, default="int", help="value type to generate (int, bool, etc.)")
     p.add_argument("--demo",  action="store_true", help="show demo")
-    p.add_argument("--simple",  action="store_true", help="simple kinds(arith, meta)")
-    p.add_argument("--meta",  action="store_true", help="simple kinds(arith, meta)")
+    p.add_argument("--kind",  type=str, default="int", help="simple kinds(arith, meta,add,ring)")
     p.add_argument("--debug",  action="store_true")
     return p.parse_args()
 
@@ -962,10 +968,8 @@ if __name__ == "__main__":
     if(a.demo):
         eval_demo()
     else:
-     if(a.simple):
+     if(a.kind=="arith" or a.kind=="simple" or a.kind=="meta" or a.kind=="add" or a.kind=="ring"):
         S=gen_and_eval_simple(a.n,a.max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=a.debug)
-     elif(a.meta):
-        S=gen_and_eval_simple(a.n,a.max_depth,seed=42, want_kind="meta",n_free_vars=4,debug=a.debug)
      else:
         S=gen_and_eval(a.n,a.max_depth,seed=42)
     showsteps(S)

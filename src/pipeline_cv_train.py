@@ -316,7 +316,7 @@ if __name__=="__main__":
     elif(args.small):
         run_small(args,out_root)
     else:
-        params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename}
+        params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename,"want_kind":args.want_kind}
         if(args.sexpfilename!=""):
             params_sexp["sexpfilename"]=args.sexpfilename
         params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
