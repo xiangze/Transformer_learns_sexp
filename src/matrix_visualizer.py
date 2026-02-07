@@ -171,49 +171,44 @@ def plot_vanilla_attention_heatmap(tokenlength,attn_dict,params,out_dir="./",pna
         elif A.ndim == 4:
             plot_heatmap(A[0].mean(dim=0).numpy(), tokens, tokens, f"{name}(avg heads,bacth=0)",fname)
 
-def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",pname=""):
+def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",pname="",show=False):
     fig,axes=plt.subplots(params["num_layer"],params["nhead"], figsize=(10,10), sharex=True)
     axes = np.atleast_2d(axes)
     assert(len(attn_maps_by_encoder)>0)
+    xs=[]
     for e,(enc_path, attn_by_layer) in enumerate(attn_maps_by_encoder.items()):
         #print("Encoder:", enc_path)
         for i,(layer_name, attn) in enumerate(attn_by_layer.items()):
             assert(attn.dim() == 4),f"{layer_name}: unexpected shape {attn.shape}"
             B, H, T, S = attn.shape
-            print(layer_name, attn.shape)
+            if(show):
+                print(layer_name, attn.shape)
             fig.suptitle(layer_name)
+            xs.append([])
             for h in range(H):
                 ax = axes[i, h]
                 x=attn[0, h].detach().cpu()
+                xs[i].append(x)
                 ax.imshow( x, cmap="viridis",aspect="auto", vmin=0.0)#vmax
-                #print(layer_name, h, float(x.min()), float(x.max()), torch.isnan(x).any().item(), torch.isinf(x).any().item())
-                assert(not torch.isnan(x).any().item())
-                assert(not torch.isinf(x).any().item())
-                print(f"layer_name:{layer_name},head:{h},min value:{float(x.min())},max value:{float(x.max())}")
-                 
+                if(show):
+                    #print(layer_name, h, float(x.min()), float(x.max()), torch.isnan(x).any().item(), torch.isinf(x).any().item())
+                    print(f"head:{h},min value:{float(x.min())},max value:{float(x.max())},NaN {torch.isnan(x).any().item()},Inf {torch.isinf(x).any().item()}")
                 ax.set_title(f"Head {h}")
                 ax.set_xlabel("Key")
                 ax.set_ylabel("Query")
     fig.suptitle("Attention matrix"+pname)
     plt.tight_layout()
     plt.savefig(f"{out_dir}/Amat_{pname}.png")
+    xs=np.array(xs)
+    np.savetxt(f"{out_dir}/Amat_{pname}.csv",xs)
+    return xs
 
-def vanilla_demo(tokenlength,out_dir="./",pname=""):    
+def vanilla_demo(params={"d_model":64,"nhead":4,"dim_ff":128,"nlayers":2,"max_len":1024,"vocab_size":10},
+                 device="cuda",x=None,mask=None,out_dir="./",pname=""):    
         # 小さなデモ：nn.TransformerEncoder で hooks により注意重みを取得
-        d_model, nhead, dim_ff, nlayers = 64, 4, 128, 2
-        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_ff, batch_first=True)
-        model = torch.nn.TransformerEncoder(encoder_layer, num_layers=nlayers)
-        attn_dict,hooks = tr.attach_encoder_attn_hooks(model)
-        # ダミー入力（トークン列長さ=10）
-        x = torch.randn(1, 10, d_model)
-        # 実行（need_weights=True は内部で指定済みの実装差があるので hook ベース）
-        with torch.no_grad():
-            _ = model(x, mask=None, src_key_padding_mask=None)
-        torch.backends.cuda.enable_flash_sdp(False)
-        torch.backends.cuda.enable_mem_efficient_sdp(False)
-        torch.backends.cuda.enable_math_sdp(True)
-        #plot_vanilla_attention_heatmap(tokenlength,attn_dict,out_dir,pname="sexp_")
-        plot_vanilla_attention_heatmap(attn_dict,out_dir,pname="sexp_")
+        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params["d_model"], nhead=params["nhead"], dim_feedforward=params["dim_ff"], batch_first=True)
+        model = torch.nn.TransformerEncoder(encoder_layer, num_layers=params["nlayers"]).to(device)
+        save_attention_heatmap(model,params,params["vocab_size"],device,pname,x,mask,out_dir)
 
 def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./"):
         tokenlength=params["max_len"] 
@@ -224,7 +219,6 @@ def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask
             x = torch.randint(vocab_size,(tokenlength,params["d_model"])).to(device) # ダミー入力(int)
             mask=None
         #print("x",x.dim(),x.shape)
-        #model.eval()
         # forward を 1 回回す（ここで辞書が埋まる）
         model(x,mask)
         # torch.backends.cuda.enable_flash_sdp(False)
@@ -239,8 +233,8 @@ def main():
     parser = argparse.ArgumentParser(description="Read & visualize parameters and attention matrices from pretrained Transformers (Hugging Face).")
     parser.add_argument("--model", type=str, default=None, help="Hugging Face model name or path (e.g., bert-base-uncased, gpt2, cl-tohoku/bert-base-japanese-v3)")
     parser.add_argument("--text", type=str, default=None, help="Input text to compute attentions for")
-    parser.add_argument("--layer", type=int, default=None, help="Layer index to visualize (default: 0)")
-    parser.add_argument("--head", type=int, default=None, help="Head index to visualize (default: 0)")
+    parser.add_argument("--layer", type=int, default=2, help="Layer index to visualize (default: 0)")
+    parser.add_argument("--head", type=int, default=4, help="Head index to visualize (default: 0)")
     parser.add_argument("--avg_heads", action="store_true", help="Average over heads instead of selecting a head")
     parser.add_argument("--out", type=str, default="attn_out", help="Output directory")
     parser.add_argument("--cpu", action="store_true", help="Force CPU")
@@ -248,7 +242,9 @@ def main():
     args = parser.parse_args()
 
     if args.demo:
-        vanilla_demo(20,out_dir="./",pname="")
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+        params={"d_model":64,"nhead":4,"dim_ff":128,"nlayers":2,"max_len":1024,"vocab_size":10}
+        vanilla_demo(params,device,x=None,mask=None,out_dir=args.out,pname="vanilla_demo_matrix")
     else:
         # HuggingFace モデルでの本処理
         assert args.model!=None ,"HuggingFace Model should by set"
