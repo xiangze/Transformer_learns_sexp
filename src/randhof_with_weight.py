@@ -908,8 +908,8 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4,
         random.seed(seed)
     result=[]
     for _ in range(num_exprs):
-        expr_str, kind = gen_expr_simple(max_depth, want_kind, seed, n_free_vars)
-        #expr_str, kind = gen(max_depth, want_kind, seed, n_free_vars)
+        #expr_str, kind = gen_expr_simple(max_depth, want_kind, seed, n_free_vars)
+        expr_str, kind = gen(max_depth, want_kind, seed, n_free_vars)
         if(debug):
             print(expr_str)
         value, steps=totaleval(expr_str)

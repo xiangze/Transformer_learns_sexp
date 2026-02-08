@@ -72,14 +72,13 @@ def attach_encoder_attn_hooks(
         if isinstance(layer.self_attn, nn.MultiheadAttention):
             layer.self_attn = ForceWeightsMHA(layer.self_attn, average_attn_weights=average_attn_weights)
 
-        name = f"layer{i}.self_attn"
         def make_hook(layer_name: str):
             def hook(module, inputs, outputs):
                 # outputs は (attn_output, attn_weights)
                 _, attn = outputs
                 attn_by_layer[layer_name] = attn  # 必要なら detach/cpu
             return hook
-        handles.append(layer.self_attn.register_forward_hook(make_hook(name)))
+        handles.append(layer.self_attn.register_forward_hook(make_hook(f"layer{i}.self_attn")))
 
     return attn_by_layer, handles
 
@@ -108,9 +107,7 @@ def attach_all_encoder_attn_hooks(
     for module_path, module in model.named_modules():
         if isinstance(module, nn.TransformerEncoder):
             attn_by_layer, handles = attach_encoder_attn_hooks(
-                module,
-                average_attn_weights=average_attn_weights,
-            )
+                module, average_attn_weights=average_attn_weights, )
             attn_maps_by_encoder[module_path] = attn_by_layer
             handles_all.extend(handles)
 

@@ -228,7 +228,8 @@ def pipeline(args,
                         vocab_size, d_model = state_dict["tok.weight"].shape
                         #print("ckpt vocab_size, d_model =", vocab_size, d_model)
                         model=make_model(params_tr,args.model,vocab_size,args.debug)
-                        model.load_state_dict(state_dict, strict=True).to(args.device)
+                        model.load_state_dict(state_dict, strict=True)
+                        model=model.to(args.device)
                     train_loss,best_val_loss,last_val_loss=1,1,1
                 else:
                     model,train_loss,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
@@ -243,6 +244,7 @@ def pipeline(args,
                 xin,mask,_vocab_size=pipeline1(args,args.want_kind)
                 print("--- sample inpuit(end)")
                 #assert(_vocab_size==vocab_size)
+                print("xin",xin)
                 vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/")
 
 def run_all(args,out_root):
@@ -258,7 +260,7 @@ def run_all(args,out_root):
         params_tr: dict ={"d_model":args.d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
 
-def run_small(args,out_root,kinds=["simple","addd","ring","meta"]):
+def run_small(args,out_root,kinds=["simple","add","ring","meta"]):
     for n,depth,n_free_vars,head,layer,d_model,kind in itertools.product(
         [30000],
         [1,2,3],
