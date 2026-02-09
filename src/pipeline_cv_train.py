@@ -206,7 +206,8 @@ def pipeline(args,
 
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
     pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])
-    
+    pname=pname.replace("sexpfilename__","").replace("want_","").replace("num_free_vars","freevars").replace("num_layer","nlayer")
+
     folds = kfold_split(len(pairs), args.kfold, args.seed)
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
@@ -244,8 +245,10 @@ def pipeline(args,
                 xin,mask,_vocab_size=pipeline1(args,args.want_kind)
                 print("--- sample inpuit(end)")
                 #assert(_vocab_size==vocab_size)
-                print("xin",xin)
+                print("xin",xin,xin.shape)
                 vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/")
+                #vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_rand_{k}",x=None,mask=None,out_dir="img/")
+                vis.show_QKV(model.enc, "QKV"+pname,params_tr["nhead"],params_tr["num_layer"],out_dir="img/",device="cuda")
 
 def run_all(args,out_root):
     for n,depth,n_free_vars,head,layer,kind in itertools.product(
