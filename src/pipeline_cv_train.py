@@ -95,7 +95,7 @@ def train_one_fold(model,
     num_workers=1
     train_loader = DataLoader(TensorDataset( *ds_train), batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
     val_loader   = DataLoader(TensorDataset( *ds_val), batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
-
+    evalperi=epochs//10
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
@@ -235,7 +235,7 @@ def pipeline(args,
                 else:
                     model,train_loss,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
                                                             epochs=args.epochs, batch_size=args.batch_size,
-                                                            device=args.device,use_amp=(args.device=="cuda"),evalperi=args.evalperi,debug=args.debug)
+                                                            device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug)
                     save(model.state_dict(), modelname)
                 msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
                 print(msg)
@@ -247,7 +247,7 @@ def pipeline(args,
                 #assert(_vocab_size==vocab_size)
                 print("xin",xin,xin.shape)
                 vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/")
-                #vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_rand_{k}",x=None,mask=None,out_dir="img/")
+#                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_rand_{k}",x=None,mask=None,out_dir="img/")
                 vis.show_QKV(model.enc, "QKV"+pname,params_tr["nhead"],params_tr["num_layer"],out_dir="img/",device="cuda")
 
 def run_all(args,out_root):
@@ -311,12 +311,14 @@ if __name__=="__main__":
     parser.add_argument("--small", action="store_true")
     parser.add_argument("--force_train", action="store_true")
     parser.add_argument("--simple", action="store_true")
+    parser.add_argument("--use_amp", action="store_true") 
     # old
     parser.add_argument("--use_s2d", action="store_true")
-    
+
     args = parser.parse_args()
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
+    args.use_amp=args.use_amp and (args.device=="cuda")       
     if(args.all):
         run_all(args,out_root)
     elif(args.simple):

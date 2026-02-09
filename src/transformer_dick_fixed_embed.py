@@ -151,6 +151,8 @@ class TransformerRegressor(nn.Module):
         if(self.debug):
             try:
                 x = self.tok(input_ids) + self.pos(pos_ids)
+                print("tok",self.tok.weight.detach().cpu())
+                print("pos",self.pos.weight.detach().cpu())
             except:
                 print("shape",self.tok(input_ids).shape)
                 print("pos",pos_ids.shape)
@@ -177,8 +179,8 @@ class TransformerRegressor(nn.Module):
             util.nanindex({"h":h,"padding_mask":key_padding_mask,"x":x,"cls":cls,"yhat":yhat},"h")
         return yhat
     
-    def add_hook(self):
-        self.attn_dict, self.hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights=False)        
+    def add_hook(self, average_attn_weights=False):
+        self.attn_dict, self.hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights)        
         return self.attn_dict, self.hooks
 if __name__ == "__main__":
     import torch.optim as optim

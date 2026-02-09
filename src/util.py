@@ -84,7 +84,7 @@ def eval_core(device,model,val_loader,criterion,use_amp=True):
     val_loss = val_running_loss / val_total
     return val_loss 
 
-def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True,peri=100,debug=False):
+def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True,peri=10,debug=False):
     best_val_loss = 1e10
     val_loss=0.
     model.to(device)
