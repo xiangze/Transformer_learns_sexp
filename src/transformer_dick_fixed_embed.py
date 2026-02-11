@@ -3,10 +3,13 @@ import re, ast
 from typing import Any, List, Tuple, Optional, Dict
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import Recursive_Ttansformer as RT
 from sexpdata import Symbol, dumps, loads
 import util
+from torch.nn.functional import _in_projection_packed
+
 # =========================================================
 # PyTorch Dataset / Collate
 # =========================================================
@@ -113,12 +116,125 @@ def attach_all_encoder_attn_hooks(
 
     return attn_maps_by_encoder, handles_all
 
+@torch.no_grad()
+def compute_qk(mha: torch.nn.MultiheadAttention, x: torch.Tensor):
+    """
+    mha: nn.MultiheadAttention
+    x : (B,T,E) if batch_first=True else (T,B,E)
+    returns:
+      q, k: (B,H,T,Hd)
+      logits: (B,H,T,T)  where logits = (q @ k^T) / sqrt(Hd)
+    """
+    # ---- shape unify to (B,T,E)
+    if mha.batch_first:
+        x_btE = x
+    else:
+        x_btE = x.transpose(0, 1)  # (B,T,E)
+
+    B, T, E = x_btE.shape
+    H = mha.num_heads
+    assert E % H == 0, f"d_model={E} must be divisible by num_heads={H}"
+    Hd = E // H
+
+    # ---- project to q,k (and v not needed)
+    # Standard MHA uses a packed projection: [Wq; Wk; Wv] in in_proj_weight
+    W = mha.in_proj_weight          # (3E, E)
+    b = mha.in_proj_bias            # (3E) or None
+    qkv = F.linear(x_btE, W, b)     # (B,T,3E)
+    q, k, _v = qkv.split(E, dim=-1) # each (B,T,E)
+
+    # ---- reshape to (B,H,T,Hd)
+    q = q.view(B, T, H, Hd).transpose(1, 2).contiguous()
+    k = k.view(B, T, H, Hd).transpose(1, 2).contiguous()
+
+    # ---- logits: (B,H,T,T)
+    qk=q @ k.transpose(-2, -1)
+    #logits = (q @ k.transpose(-2, -1)) / math.sqrt(Hd)
+    return q, k, qk
+
+def attach_qk_hooks_to_transformer_encoder(model: torch.nn.Module):
+    """
+    model: nn.TransformerEncoder でも encoder を含む任意のモデルでもOK
+    戻り値:
+      cache: 取り出した logits などを溜める辞書
+      handles: remove() 用の handle 一覧
+    """
+    cache = {}
+    handles = []
+
+    # TransformerEncoder なら通常 model.layers に EncoderLayer が入っている
+    # それ以外でも "self_attn" を持つモジュールを探索して貼るのが堅い
+    for name, mod in model.named_modules():
+        if isinstance(mod, torch.nn.MultiheadAttention):
+            cache[name] = {"q": [], "k": [], "logits": []}
+
+            def make_hook(mha_name):
+                def pre_hook(mha_module, args):
+                    # MultiheadAttention.forward(self, query, key, value, ...)
+                    query = args[0]
+                    # self-attention前提で query==key==value のはず
+                    q, k, logits = compute_qk(mha_module, query)
+                    cache[mha_name]["q"].append(q.cpu())
+                    cache[mha_name]["k"].append(k.cpu())
+                    cache[mha_name]["logits"].append(logits.cpu())
+                return pre_hook
+
+            h = mod.register_forward_pre_hook(make_hook(name))
+            handles.append(h)
+
+    return cache, handles
+
+
+class EncoderLayerWithQK(nn.TransformerEncoderLayer):
+    def forward(self, src, src_mask=None, src_key_padding_mask=None, is_causal=False):
+        # src: (B, T, E) if batch_first=True
+        x = src
+        attn = self.self_attn
+        assert attn.batch_first, "この例は batch_first=True 前提です"
+
+        # --- Q,K を取り出す（MultiheadAttention の投影と同じ重みを使う） ---
+        # PyTorch実装に合わせて in_proj_weight/bias を使う
+        q, k, v = _in_projection_packed(x, x, x, attn.in_proj_weight, attn.in_proj_bias)
+
+        B, T, E = q.shape
+        H = attn.num_heads
+        Hd = E // H
+        # (B, H, T, Hd)
+        q = q.view(B, T, H, Hd).transpose(1, 2)
+        k = k.view(B, T, H, Hd).transpose(1, 2)
+
+        # --- softmax前のスコア（logits）: (B, H, T, T) ---
+        logits = (q @ k.transpose(-2, -1)) / math.sqrt(Hd)
+
+        # 参考：mask を適用したいならここで（可視化目的なら未適用の方が見やすいことも多い）
+        if src_mask is not None:
+            # src_mask は (T,T) or (B*H,T,T) などの場合があるので用途に合わせて調整
+            pass
+        if src_key_padding_mask is not None:
+            # (B,T) Trueがpad なら logits[..., pad_pos] を -inf にする等
+            pass
+
+        # --- 通常の TransformerEncoderLayer の処理（= 出力も返す） ---
+        # 元実装に近い形で self_attn を呼んで出力を得る
+        attn_out = attn(x, x, x,
+                        attn_mask=src_mask,
+                        key_padding_mask=src_key_padding_mask,
+                        need_weights=False,
+                        is_causal=is_causal)[0]
+        x = x + self.dropout1(attn_out)
+        x = self.norm1(x)
+
+        ff = self.linear2(self.dropout(self.activation(self.linear1(x))))
+        x = x + self.dropout2(ff)
+        x = self.norm2(x)
+        return x, {"q": q, "k": k, "logits": logits}
+
 # =========================================================
 # Transformer 回帰モデル
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
 # =========================================================
 class TransformerRegressor(nn.Module):
-    def __init__(self, params:dict,debug=False):
+    def __init__(self, params:dict,debug=False,outQK=False):
         super().__init__()
         vocab_size=params["vocab_size"]
         d_model=params["d_model"]
@@ -136,7 +252,11 @@ class TransformerRegressor(nn.Module):
             d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
             dropout=dropout, batch_first=True, activation="gelu"
         )
-        self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
+        if(outQK):
+            self.enc = EncoderLayerWithQK(nn.TransformerEncoderLayer)
+        else:
+            self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
+        
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
             nn.Linear(d_model, max_len)
@@ -224,5 +344,4 @@ if __name__ == "__main__":
             optimizer.step()
             print("yhat:",yhat)
             print("loss:", loss)
-
 

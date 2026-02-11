@@ -65,7 +65,7 @@ import transformer_dick_fixed_embed as fixed
 import Recursive_Ttansformer as recursive
 def make_model(params,model_kind,vocab_size,debug):
     params["pad_id"]=0
-    params["dropout"]=0.2
+    #
     params["vocab_size"]=vocab_size
     if model_kind == "fixed":
         model=fixed.TransformerRegressor(params,debug=debug)
@@ -95,7 +95,7 @@ def train_one_fold(model,
     num_workers=1
     train_loader = DataLoader(TensorDataset( *ds_train), batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
     val_loader   = DataLoader(TensorDataset( *ds_val), batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
-    evalperi=epochs//10
+    evalperi=max(1,epochs//10)
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
@@ -140,7 +140,7 @@ def genSexps(args):
 def toint(S):
     return [[int(i) for i in s] for s in S]
 """
-S式集合とその簡約化の集合を[one-hot token,文字列長]size list[list](行列相当)のpairに変換し、vocabrary sizeとともに返す
+S式集合とその簡約化の集合を[one-hot token,文字列長]size list[list](行列相当)のpairに変換し、vocabrary size()とともに返す
 """
 def convert(S,ss,args):
     t0 = time.time()
@@ -170,7 +170,7 @@ def convert(S,ss,args):
         vocab_size=max([max(s) for s in S]+[max(s) for s in ss])+1
         
         print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
-        print("length S,ss,maksk,target_maksk",len(S[0]),len(ss[0]),len(masks),len(target_masks))
+        print("length of [S,ss,maksk,target_maksk]=",len(S[0]),len(ss[0]),len(masks),len(target_masks))
         print("vacab size",vocab_size)
         print("len pairs",len(pairs))
     else:
@@ -192,7 +192,7 @@ def pipeline1(args,kind="any"):
 
 def pipeline(args,
              params_sexp:dict,
-             params_tr: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096},
+             params_tr: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096,"dropout":0.2},
              out_root="result", seed: int =-1):
     if(args.debug):
         args.n_sexps=10
@@ -205,10 +205,10 @@ def pipeline(args,
     print("[4/5] K-fold training/evaluation...")
 
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
-    pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])
+    pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
     pname=pname.replace("sexpfilename__","").replace("want_","").replace("num_free_vars","freevars").replace("num_layer","nlayer")
 
-    folds = kfold_split(len(pairs), args.kfold, args.seed)
+    folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
             os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
@@ -245,17 +245,15 @@ def pipeline(args,
                 xin,mask,_vocab_size=pipeline1(args,args.want_kind)
                 print("--- sample inpuit(end)")
                 #assert(_vocab_size==vocab_size)
-                print("xin",xin,xin.shape)
+                print("xin",xin,xin.shape,"mask",mask)
                 vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/")
-#                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_rand_{k}",x=None,mask=None,out_dir="img/")
-                vis.show_QKV(model.enc, "QKV"+pname,params_tr["nhead"],params_tr["num_layer"],out_dir="img/",device="cuda")
+                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/",getAttention=False)
+                vis.show_QKV(model.enc, "QKV"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
+                vis.show_QKV(model.enc, "QKV"+pname+"rand",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
 
 def run_all(args,out_root):
     for n,depth,n_free_vars,head,layer,kind in itertools.product(
-        [8000,10000,20000,50000],
-        [2,3,4],
-        [3,4,5],
-        [2,4,8],[2,3,4],
+        [8000,10000,20000,50000], [2,3,4], [3,4,5], [2,4,8],[2,3,4],
         ["int","kinder","list","closure","withlet","default"],
         ):
         args.want_kind=kind
@@ -264,13 +262,8 @@ def run_all(args,out_root):
         pipeline(args, params_sexp,params_tr,out_root=out_root)
 
 def run_small(args,out_root,kinds=["simple","add","ring","meta"]):
-    for n,depth,n_free_vars,head,layer,d_model,kind in itertools.product(
-        [30000],
-        [1,2,3],
-        [3],
-        [2,4],
-        [1,2,3],
-        [256],#,512,256+512],
+    for n,       depth,  n_free_vars,head,layer,   d_model,kind in itertools.product(
+        [30000], [1,2,3], [3],      [2,4], [1,2,3],[256],#,512,256+512],
         kinds, #["kinder","closure","withlet"]
         ):
         args.want_kind=kind
@@ -292,7 +285,7 @@ if __name__=="__main__":
     parser.add_argument("--want_kind", type=str, default="int")
     # leaning params
     parser.add_argument("--kfold", type=int, default=5, help="交差検証のfold数")
-    parser.add_argument("--model", type=str, choices=["fixed", "recursive"], default="fixed")
+    parser.add_argument("--model", type=str, choices=["fixed", "recursive","attentiononly"], default="fixed")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
@@ -304,6 +297,7 @@ if __name__=="__main__":
     parser.add_argument("--num_layer", type=int, default=4,   help="num. of layers")
     parser.add_argument("--dim_ff",    type=int, default=256, help="dim. of FNN")
     parser.add_argument("--max_len",   type=int, default=4096,help="max length of input sequence")
+    parser.add_argument("--dropout",   type=float, default=0.2,help="dropout")
     # others
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--debug", action="store_true")
@@ -329,5 +323,5 @@ if __name__=="__main__":
         params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename,"want_kind":args.want_kind}
         if(args.sexpfilename!=""):
             params_sexp["sexpfilename"]=args.sexpfilename
-        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout}
         pipeline(args, params_sexp,params_tr,out_root=out_root)

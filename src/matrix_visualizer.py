@@ -204,14 +204,14 @@ def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",
             ax.set_xlabel("Key")
             ax.set_ylabel("Query")
             ax.grid(True)
-    fig.suptitle("Attention matrix"+pname)
+    fig.suptitle(pname)
     cbar = ax.figure.colorbar(im, ax=ax, **{})
     cbar.ax.set_ylabel("", rotation=-90, va="bottom")
     plt.tight_layout()
-    plt.savefig(f"{out_dir}/Amat_{pname}.png")
+    plt.savefig(f"{out_dir}/{pname}.png")
     plt.close(fig)
     xs=np.array(xs)
-    np.save(f"{out_dir}/Amat_{pname}.npy",xs)
+    np.save(f"data/{pname}.npy",xs)
     return xs
 
 def gen_TransformerEncoder1(params):
@@ -225,14 +225,16 @@ def vanilla_demo(params={"d_model":64,"nhead":4,"dim_ff":128,"num_layer":2,"max_
         # 小さなデモ：nn.TransformerEncoder で hooks により注意重みを取得
         save_attention_heatmap(gen_TransformerEncoder1(params),params,params["vocab_size"],device,pname,x,mask,out_dir,show=True)
 
-def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./",show=False):
+def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./",show=False,getAttention=True):
         model.to(device)
         model.eval()
-        attn_maps_by_encoder, handles = tr.attach_all_encoder_attn_hooks(model,average_attn_weights=False)# head ごとに取りたいなら False
-        if(x is None):# ダミー入力
-            x = torch.rand((params["max_len"] ,params["d_model"])).to(device)
-            mask=None
-        #print("x",x.dim(),x.shape)
+        if(getAttention):
+            attn_maps_by_encoder, handles = tr.attach_all_encoder_attn_hooks(model,average_attn_weights=False)# head ごとに取りたいなら False
+            pname="Amat_"+pname
+        else:
+            attn_maps_by_encoder, handles = tr.attach_qk_hooks_to_transformer_encoder(model)
+            pname="QK_"+pname
+            print(attn_maps_by_encoder)
         # forward を 1 回回す（ここで辞書が埋まる）
         model(x,mask)
         # torch.backends.cuda.enable_flash_sdp(False)
@@ -255,23 +257,26 @@ def extract_qkv_weights(mha: torch.nn.MultiheadAttention):
         Wv = mha.v_proj_weight.detach().cpu()
     return Wq, Wk, Wv
 
-def get_qkv_weights(model,num_heads):
+def get_qkv_weights(model,num_heads,x=None):
     Ws=[]
     nh=num_heads
-    #for layer in model.encoder.layers:
     for layer in model.layers:
-        Ws.append(
-            [[W[h*(W.shape[0]//nh):(h+1)*(W.shape[0]//nh), :] for h in range(nh)] for W in extract_qkv_weights(layer.self_attn)]
-            )
+        for W in extract_qkv_weights(layer.self_attn):
+            if(x!=None):
+                W=W@x
+                WW=[W[h*(W.shape[0]//nh):(h+1)*(W.shape[0]//nh)] for h in range(nh)] 
+            else:
+                WW=[W[h*(W.shape[0]//nh):(h+1)*(W.shape[0]//nh), :] for h in range(nh)] 
+            Ws.append(WW)
     return Ws #[ Wq, Wk, Wv] 
 
-def show_QKV(model, pname,num_heads,num_layers,out_dir,device="cuda"):
+def show_QKV(model, pname,num_heads,out_dir,x=None,device="cuda"):
     model.to(device)
     model.eval()
     WS={"Q":[],"K":[],"V":[]}
     global_min=1e9
     global_max=0
-    for l,alayer in enumerate(get_qkv_weights(model,num_heads)):
+    for l,alayer in enumerate(get_qkv_weights(model,num_heads,x)):
         for title, W in zip(["Q","K","V"],alayer):
             for Whead in W:
                 Whead=Whead.numpy()
@@ -295,8 +300,8 @@ def show_QKV(model, pname,num_heads,num_layers,out_dir,device="cuda"):
     plt.close(fig)
         
 def show_QKV_demo(params={"d_model":64,"nhead":4,"dim_ff":128,"num_layer":2,"max_len":1024,"vocab_size":10},
-                 device="cuda",out_dir="./",pname="QKV"):    
-        show_QKV(gen_TransformerEncoder1(params),pname,params["nhead"],params["num_layer"],out_dir=out_dir,device=device)
+                 device="cuda",out_dir="./",pname="QKV",x=None):    
+        show_QKV(gen_TransformerEncoder1(params),pname,params["nhead"],out_dir=out_dir,device=device,x=x)
 
 
 def main():
