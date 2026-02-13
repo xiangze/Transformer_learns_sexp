@@ -9,7 +9,7 @@ import Recursive_Ttansformer as RT
 from sexpdata import Symbol, dumps, loads
 import util
 from torch.nn.functional import _in_projection_packed
-
+import math
 # =========================================================
 # PyTorch Dataset / Collate
 # =========================================================
@@ -204,7 +204,8 @@ class EncoderLayerWithQK(nn.TransformerEncoderLayer):
         k = k.view(B, T, H, Hd).transpose(1, 2)
 
         # --- softmax前のスコア（logits）: (B, H, T, T) ---
-        logits = (q @ k.transpose(-2, -1)) / math.sqrt(Hd)
+        qk=q @ k.transpose(-2, -1)
+        logits = qk / math.sqrt(Hd)
 
         # 参考：mask を適用したいならここで（可視化目的なら未適用の方が見やすいことも多い）
         if src_mask is not None:
@@ -227,7 +228,7 @@ class EncoderLayerWithQK(nn.TransformerEncoderLayer):
         ff = self.linear2(self.dropout(self.activation(self.linear1(x))))
         x = x + self.dropout2(ff)
         x = self.norm2(x)
-        return x, {"q": q, "k": k, "logits": logits}
+        return x, {"q": q, "k": k, "qk":qk,"logits": logits}
 
 # =========================================================
 # Transformer 回帰モデル
@@ -248,14 +249,17 @@ class TransformerRegressor(nn.Module):
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
         self.debug=debug
-        enc_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
-            dropout=dropout, batch_first=True, activation="gelu"
-        )
         if(outQK):
-            self.enc = EncoderLayerWithQK(nn.TransformerEncoderLayer)
+            enc_layer = nn.TransformerEncoderLayer(
+                d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+                dropout=dropout, batch_first=True, activation="gelu"
+            )
         else:
-            self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
+            enc_layer = EncoderLayerWithQK(
+                d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+                dropout=dropout, batch_first=True, activation="gelu"
+            )
+        self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
         
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),

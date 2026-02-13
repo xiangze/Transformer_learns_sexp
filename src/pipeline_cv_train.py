@@ -69,6 +69,8 @@ def make_model(params,model_kind,vocab_size,debug):
     params["vocab_size"]=vocab_size
     if model_kind == "fixed":
         model=fixed.TransformerRegressor(params,debug=debug)
+    elif model_kind == "outQK":
+        model=fixed.TransformerRegressor(params,debug=debug,outQK=True)
     elif model_kind == "recursive":
         model=recursive.SharedTransformerRegressor(params,debug=debug)
     elif model_kind == "attentiononly":
@@ -188,7 +190,8 @@ def pipeline1(args,kind="any"):
     S,ss,steps=genSexps(args)
     pairs,vocab_size=convert(S,ss,args)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
-    return ds[0].to(args.device),ds[2].to(args.device),vocab_size
+    mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる
+    return ds[0].to(args.device),mask,vocab_size
 
 def pipeline(args,
              params_sexp:dict,
@@ -206,7 +209,7 @@ def pipeline(args,
 
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
     pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
-    pname=pname.replace("sexpfilename__","").replace("want_","").replace("num_free_vars","freevars").replace("num_layer","nlayer")
+    pname=pname.replace("sexpfilename__","").replace("want_","").replace("num_free_vars","freevars").replace("num_layer","nlayer").replace("d_model","d_")
 
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
     with open(f"log/{pname}.log","w") as fpw:
@@ -248,24 +251,23 @@ def pipeline(args,
                 print("xin",xin,xin.shape,"mask",mask)
                 vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/")
                 vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/",getAttention=False)
-                vis.show_QKV(model.enc, "QKV"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
-                vis.show_QKV(model.enc, "QKV"+pname+"rand",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
+                vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
+                vis.show_QKV(model.enc, "QKV_"+pname+"rand",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
 
 def run_all(args,out_root):
     for n,depth,n_free_vars,head,layer,kind in itertools.product(
         [8000,10000,20000,50000], [2,3,4], [3,4,5], [2,4,8],[2,3,4],
-        ["int","kinder","list","closure","withlet","default"],
-        ):
+        ["int","kinder","list","closure","withlet","default"],  ):
         args.want_kind=kind
         params_sexp:dict={"num":n,"num_free_vars":n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename,"want_kind":kind}
         params_tr: dict ={"d_model":args.d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
 
-def run_small(args,out_root,kinds=["simple","add","ring","meta"]):
-    for n,       depth,  n_free_vars,head,layer,   d_model,kind in itertools.product(
+def run_small(args,out_root,kinds=["simple","add","ring","meta"],
+              models=["fixed", "recursive","attentiononly","outQK"]):
+    for n,       depth,  n_free_vars,head,layer,   d_model,kind ,model in itertools.product(
         [30000], [1,2,3], [3],      [2,4], [1,2,3],[256],#,512,256+512],
-        kinds, #["kinder","closure","withlet"]
-        ):
+        kinds,models):#["kinder","closure","withlet"]
         args.want_kind=kind
         params_sexp:dict={"num":n,"num_free_vars":n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename,"want_kind":kind}
         params_tr: dict ={"d_model":d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
@@ -285,7 +287,7 @@ if __name__=="__main__":
     parser.add_argument("--want_kind", type=str, default="int")
     # leaning params
     parser.add_argument("--kfold", type=int, default=5, help="交差検証のfold数")
-    parser.add_argument("--model", type=str, choices=["fixed", "recursive","attentiononly"], default="fixed")
+    parser.add_argument("--model", type=str, choices=["fixed", "recursive","attentiononly","outQK"], default="fixed")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
@@ -323,5 +325,7 @@ if __name__=="__main__":
         params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename,"want_kind":args.want_kind}
         if(args.sexpfilename!=""):
             params_sexp["sexpfilename"]=args.sexpfilename
-        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout}
+        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
+                          "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
+                          "model":args.model}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
