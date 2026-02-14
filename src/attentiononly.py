@@ -56,6 +56,7 @@ class AttentionOnlyNet(nn.Module):
         attn_mask: torch.Tensor | None = None,
         key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        attn_mask=(attn_mask == 0) # True=padding
         for layer in self.layers:
             x = layer(
                 x,
@@ -65,14 +66,17 @@ class AttentionOnlyNet(nn.Module):
         return x
 
 class AttentionOnlyRegressor(AttentionOnlyNet):
-    def __init__(self, d_model: int, n_heads: int, num_layers: int,  dropout: float = 0.1):
-        super().__init__(d_model, n_heads, num_layers, dropout)
+    def __init__(self, params:dict,debug=False):
+        super().__init__(params["d_model"] ,params["nhead"],params["num_layer"] ,params["dropout"]) 
+        d_model=params["d_model"]
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
             nn.Linear(d_model, 1)
         )
 
     def forward(self, x: torch.Tensor, attn_mask: torch.Tensor | None = None, key_padding_mask: torch.Tensor | None = None) -> torch.Tensor:
+        key_padding_mask = (attn_mask == 0) # True=padding
+        key_padding_mask[:, 0] = False
         cls = super().forward(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)[:, 0, :]  # (B, d_model)
         yhat = self.head(cls)  # (B,1)
         return yhat
