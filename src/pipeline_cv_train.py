@@ -249,9 +249,8 @@ def pipeline(args,
                 print("--- sample inpuit(end)")
                 #assert(_vocab_size==vocab_size)
                 print("xin",xin,xin.shape,"mask",mask)
-                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/")
-                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/",getAttention=False)
-                vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
+                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
+                #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
                 vis.show_QKV(model.enc, "QKV_"+pname+"rand",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
 
 def run_all(args,out_root):
@@ -270,7 +269,7 @@ def run_small(args,out_root,kinds=["simple","add","ring","meta"],
         kinds,models):#["kinder","closure","withlet"]
         args.want_kind=kind
         params_sexp:dict={"num":n,"num_free_vars":n_free_vars,"max_depth":depth,"sexpfilename":args.sexpfilename,"want_kind":kind}
-        params_tr: dict ={"d_model":d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len}
+        params_tr: dict ={"d_model":d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len,"model":model}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
 
 # ------------------------------

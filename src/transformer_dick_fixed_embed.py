@@ -249,7 +249,7 @@ class TransformerRegressor(nn.Module):
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
         self.debug=debug
-        if(outQK):
+        if(not outQK):
             enc_layer = nn.TransformerEncoderLayer(
                 d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
                 dropout=dropout, batch_first=True, activation="gelu"

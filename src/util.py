@@ -39,7 +39,7 @@ def train_core(device,model,train_loader,optimizer,criterion,use_amp=True,scaler
                 out = model(imgs,attn_mask=mask)
                 #loss = criterion(out, targets.to(out.dtype))
                 # padding_mask: (B, L) True=PAD, False=# padding_mask: (B, L) True=PAD, False=有効
-                valid_mask = (1-target_mask).unsqueeze(-1).float()  # (B,L,1)
+                valid_mask = target_mask.unsqueeze(-1).float()  # (B,L,1)
                 loss_raw = (out - targets) ** 2     # (B,L,D)
                 loss = (loss_raw * valid_mask.squeeze(-1)).sum() / valid_mask.sum()
             if(debug):
@@ -73,7 +73,7 @@ def eval_core(device,model,val_loader,criterion,use_amp=True):
                 out = model(imgs,attn_mask=masks)
                 #loss = criterion(logits, targets.to(logits.dtype))
                 # padding_mask: (B, L) True=PAD, False=# padding_mask: (B, L) True=PAD, False=有効
-                valid_mask = (1-target_mask).unsqueeze(-1).float()  # (B,L,1)
+                valid_mask = target_mask.unsqueeze(-1).float()  # (B,L,1)
                 loss_raw = (out-targets)**2     # (B,L,D)
                 loss = (loss_raw*valid_mask.squeeze(-1)).sum() / valid_mask.sum()
 
