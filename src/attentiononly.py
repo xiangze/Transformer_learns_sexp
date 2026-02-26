@@ -84,7 +84,7 @@ class SharedAttentionOnly(nn.Module):
                 need_weights=self.weightvisible)
             #可視化したいときはTrue
             h=attn_out
-        return self.norm(h)+ self.dropout(attn_out)
+        return h #self.norm(h)+ self.dropout(attn_out)
 
 class AttentionOnlyNet(nn.Module):
     """
@@ -116,8 +116,8 @@ class AttentionOnlyNet(nn.Module):
         return x
 
 class AttentionOnlyRegressor(AttentionOnlyNet):
-    def __init__(self, params:dict,debug=False,recursive=False):
-        super().__init__(params,debug,recursive)
+    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False):
+        super().__init__(params,debug,recursive,weightvisible)
         d_model=params["d_model"]
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
@@ -130,6 +130,10 @@ class AttentionOnlyRegressor(AttentionOnlyNet):
         cls = super().forward(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)[:, 0, :]  # (B, d_model)
         yhat = self.head(cls)  # (B,1)
         return yhat
+
+class AttentionOnlyFRecursiveRegressor(AttentionOnlyRegressor):
+    def __init__(self, params:dict,debug=False,weightvisible=False):
+        super().__init__(params,debug,True,weightvisible)
 
 # 動作チェック用のサンプル
 if __name__ == "__main__":
@@ -145,7 +149,9 @@ if __name__ == "__main__":
     net = AttentionOnlyNet(params)
     x = torch.randn(params["batch_size"], params["seq_len"], params["d_model"])  # すでに埋め込み済みの入力
     out = net(x)
-    print(out.shape)  # -> torch.Size([4, 16, 64])
+    print(out)
+    #print(out.shape)  # -> torch.Size([4, 16, 64])
+
     print("Attention Only regressor")
     net = AttentionOnlyRegressor(params)
     out = net(x)

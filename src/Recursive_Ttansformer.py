@@ -7,13 +7,9 @@ class SharedTransformerEncoder(nn.Module):
     """
     1つの TransformerEncoderLayer を steps 回“再帰的”に適用する重み共有エンコーダ。
     """
-    def __init__(
-        self,
-        params:dict,
-        debug=False  ):
-
+    def __init__(self,params:dict,debug=False,outQK=False):
         super().__init__()
-        vocab_size=params["vocab_size"]
+        #vocab_size=params["vocab_size"]
         d_model=params["d_model"]
         nhead=params["nhead"]
         steps = params["num_layer"]# 反復回数（＝層数に相当）
@@ -22,7 +18,7 @@ class SharedTransformerEncoder(nn.Module):
 
         dim_ff= params["dim_ff"]
         max_len= params["max_len"]
-        pad_id=params["pad_id"]
+        #pad_id=params["pad_id"]
         dropout=params["dropout"]
 
         self.steps = steps
@@ -67,19 +63,19 @@ class SharedTransformerRegressor(nn.Module):
     """
     入力埋め込み（学習 or 固定）→ 共有トランスフォーマ → <CLS> 回帰
     """
-    def __init__(
-        self,
-        *,
-        d_model: int = 256,
-        nhead: int = 8,
-        dim_ff: int = 1024,
-        dropout: float = 0.1,
-        steps: int = 6,
-        max_len: int = 4096,
-        embed_mode: str = "fixed",   # "fixed" = 事前関数でエンコード済み, "learned" = nn.Embedding 使用
-        vocab_size: int | None = None,
-    ):
+    def __init__(self,params:dict,debug=False,embed_mode="learned",outQK=False):
         super().__init__()
+        vocab_size=params["vocab_size"]
+        d_model=params["d_model"]
+        nhead=params["nhead"]
+        steps = params["num_layer"]# 反復回数（＝層数に相当）
+        #use_step_embed= True    # Universal Transformer 的な step embedding
+        #norm_first =True  params["norm_first"]        # Pre-LN の方が安定しやすい
+        dim_ff= params["dim_ff"]
+        max_len= params["max_len"]
+        pad_id=params["pad_id"]
+        dropout=params["dropout"]
+        
         assert embed_mode in ("fixed", "learned")
         self.embed_mode = embed_mode
 
@@ -96,8 +92,9 @@ class SharedTransformerRegressor(nn.Module):
         )
 
         self.encoder = SharedTransformerEncoder(
-            d_model=d_model, nhead=nhead, dim_ff=dim_ff,
-            dropout=dropout, steps=steps, max_len=max_len, use_step_embed=True, norm_first=True
+            params
+            #d_model=d_model, nhead=nhead, dim_ff=dim_ff,
+            #dropout=dropout, steps=steps, max_len=max_len, use_step_embed=True, norm_first=True
         )
         self.head = nn.Sequential(nn.LayerNorm(d_model), nn.Linear(d_model, 1))
 

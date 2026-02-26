@@ -67,14 +67,15 @@ def make_model(params,model_kind,vocab_size,debug):
     params["pad_id"]=0
     #
     params["vocab_size"]=vocab_size
-    if model_kind == "fixed":
+    if params.attentiononly:
+        if params.resursive:
+            model=atn.AttentionOnlyFRecursiveRegressor(params,debug=debug,weightvisible=True)
+        else:    
+            model=atn.AttentionOnlyRegressor(params,debug=debug)
+    elif model_kind == "fixed":
         model=fixed.TransformerRegressor(params,debug=debug)
     elif model_kind == "outQK":
         model=fixed.TransformerRegressor(params,debug=debug,outQK=True)
-    elif model_kind == "recursive":
-        model=recursive.SharedTransformerRegressor(params,debug=debug)
-    elif model_kind == "attentiononly":
-        model=atn.AttentionOnlyRegressor(params,debug=debug)
     else:
         raise ValueError("model_kind must be 'fixed' or 'recursive'.")
     return model
@@ -272,6 +273,7 @@ def run_small(args,out_root,kinds=["simple","add","ring","meta"],
         params_tr: dict ={"d_model":d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len,"model":model}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
 
+
 # ------------------------------
 # Main
 # ------------------------------
@@ -299,6 +301,8 @@ if __name__=="__main__":
     parser.add_argument("--dim_ff",    type=int, default=256, help="dim. of FNN")
     parser.add_argument("--max_len",   type=int, default=4096,help="max length of input sequence")
     parser.add_argument("--dropout",   type=float, default=0.2,help="dropout")
+    parser.add_argument("--recursive",   action="store_true")   
+    parser.add_argument("--attentiononly",   action="store_true")   
     # others
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--debug", action="store_true")
@@ -326,5 +330,5 @@ if __name__=="__main__":
             params_sexp["sexpfilename"]=args.sexpfilename
         params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
                           "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
-                          "model":args.model}
+                          "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
