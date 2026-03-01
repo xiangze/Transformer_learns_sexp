@@ -67,8 +67,8 @@ def make_model(params,model_kind,vocab_size,debug):
     params["pad_id"]=0
     #
     params["vocab_size"]=vocab_size
-    if params.attentiononly:
-        if params.resursive:
+    if params["attentiononly"]:
+        if params["recursive"]:
             model=atn.AttentionOnlyFRecursiveRegressor(params,debug=debug,weightvisible=True)
         else:    
             model=atn.AttentionOnlyRegressor(params,debug=debug)

@@ -9,7 +9,6 @@ class AttentionOnlyBlock(nn.Module):
         super().__init__()
         d_model=params["d_model"]
         n_heads=params["nhead"]
-        #dim_ff= params["dim_ff"]
         #max_len= params["max_len"]
         #pad_id=params["pad_id"]
         dropout=params["dropout"]
@@ -47,7 +46,7 @@ class SharedAttentionOnly(nn.Module):
     """
     def __init__(self, params:dict,debug=False, weightvisible=False):#可視化したいときはTrue
         super().__init__()
-        self.steps = params["num_layers"]# 反復回数（＝層数に相当）
+        self.steps = params["num_layer"]# 反復回数（＝層数に相当）
         d_model=params["d_model"]
         dropout=params["dropout"]        
         n_heads=params["nhead"]
@@ -59,30 +58,41 @@ class SharedAttentionOnly(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
         self.norm = nn.LayerNorm(d_model)
-        #self.pos = nn.Embedding(max_len, d_model)
         self.step_embed = None
         self.weightvisible=weightvisible
+        self.debug=debug
 
-    def forward(
-        self,
+    def forward(self,
         x_tok: torch.Tensor,                 # (B, L, d_model) すでにトークン側で埋め込み済み
-        key_padding_mask: torch.Tensor = None,  # (B, L) 1=keep/0=pad なら (==0) を渡す
         attn_mask: torch.Tensor = None,         # (L, L) など（必要な場合）
+        key_padding_mask: torch.Tensor = None,  # (B, L) 1=keep/0=pad なら (==0) を渡す
     ) -> torch.Tensor:
-        B, L, D = x_tok.shape
-        #pos_ids = torch.arange(L, device=x_tok.device).unsqueeze(0).expand(B, L)
-        h = x_tok #+ self.pos(pos_ids)
+        B, L = x_tok.shape
+        pos_ids = torch.arange(L, device=x_tok.device).unsqueeze(0).expand(B, L)
+        h = x_tok + pos_ids #self.pos(pos_ids)
 
+        #key_padding_mask=(key_padding_mask == 0) if key_padding_mask is not None else None,
+        if attn_mask is None:
+            key_padding_mask = (x_tok == self.pad_id)
+        else:
+            key_padding_mask = (attn_mask == 0) # True=padding
+        key_padding_mask[:, 0] = False
+
+        valid = (~key_padding_mask).sum(dim=1)
+        assert torch.all(valid > 0), "Some sequences fully masked!"
+
+        if(self.debug):
+            print("key_padding_mask",key_padding_mask)
+            print("attn_mask",attn_mask)
         for t in range(self.steps):
             if self.step_embed is not None:
                 step_ids = torch.full((B, L), t, dtype=torch.long, device=x_tok.device)
                 h = h + self.step_embed(step_ids)
             attn_out ,_ = self.attn(
                 h,h,h,
-                key_padding_mask=(key_padding_mask == 0) if key_padding_mask is not None else None,
+                key_padding_mask=(attn_mask == 0), # True=padding
                 attn_mask=attn_mask,
-                need_weights=self.weightvisible)
-            #可視化したいときはTrue
+                need_weights=self.weightvisible)   #可視化したいときはTrue
             h=attn_out
         return h #self.norm(h)+ self.dropout(attn_out)
 
@@ -93,7 +103,7 @@ class AttentionOnlyNet(nn.Module):
     """
     def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False):
         super().__init__()
-        num_layers=params["num_layers"]
+        num_layers=params["num_layer"]
         if(recursive):
             self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible)])
         else:
@@ -105,9 +115,7 @@ class AttentionOnlyNet(nn.Module):
         attn_mask: torch.Tensor | None = None,
         key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        #attn_mask=(attn_mask == 0) # True=padding
         for layer in self.layers:
-            #print(x)
             x = layer(
                 x,
                 attn_mask=attn_mask,
@@ -142,7 +150,7 @@ if __name__ == "__main__":
         "seq_len" : 16,
         "d_model" : 64,
         "nhead" : 4,
-        "num_layers" :3,
+        "num_layer" :3,
         "dropout":0.1,
     }
     print("Attention Only")

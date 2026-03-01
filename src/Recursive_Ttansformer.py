@@ -43,7 +43,7 @@ class SharedTransformerEncoder(nn.Module):
         key_padding_mask: torch.Tensor = None,  # (B, L) 1=keep/0=pad なら (==0) を渡す
         attn_mask: torch.Tensor = None,         # (L, L) など（必要な場合）
     ) -> torch.Tensor:
-        B, L, D = x_tok.shape
+        B, L = x_tok.shape
         pos_ids = torch.arange(L, device=x_tok.device).unsqueeze(0).expand(B, L)
         h = x_tok + self.pos(pos_ids)
 
@@ -70,11 +70,6 @@ class SharedTransformerRegressor(nn.Module):
         nhead=params["nhead"]
         steps = params["num_layer"]# 反復回数（＝層数に相当）
         #use_step_embed= True    # Universal Transformer 的な step embedding
-        #norm_first =True  params["norm_first"]        # Pre-LN の方が安定しやすい
-        dim_ff= params["dim_ff"]
-        max_len= params["max_len"]
-        pad_id=params["pad_id"]
-        dropout=params["dropout"]
         
         assert embed_mode in ("fixed", "learned")
         self.embed_mode = embed_mode
