@@ -89,7 +89,7 @@ def train_one_fold(model,
     print(f"Device: {device} amp:{use_amp}")
     pin = (device == "cuda")
     ds_train=[tensor(t) for t in ds_train]
-    ds_val  =[tensor(t) for t in ds_val] #torch.as_tensor(..., dtype=...)
+    ds_val  =[tensor(t) for t in ds_val] 
     for d in ds_val:
         print(d.shape,",",end="")
     assert(ds_train[0].shape[1]==ds_train[1].shape[1])
@@ -142,47 +142,56 @@ def genSexps(args):
 
 def toint(S):
     return [[int(i) for i in s] for s in S]
+
+def loadconvertedfile(convfilename):
+    print("try loading ",convfilename)
+    S=[];ss=[];masks=[];target_masks=[]
+    with open(convfilename) as fp:
+        for l in fp.readlines():
+            n=l.split("], [")
+            for i,s in enumerate([S,ss,masks,target_masks]):
+                s.append(n[i].replace("]","").replace("[","").replace("(","").split(", "))
+        S,ss,masks,target_masks=[[toint(s) for s in n] for n in [S,ss,masks,target_masks]]
+        print(f"read {len(S)} pairs from {convfilename}")
+    return S,ss,masks,target_masks
+
 """
 S式集合とその簡約化の集合を[one-hot token,文字列長]size list[list](行列相当)のpairに変換し、vocabrary size()とともに返す
 """
 def convert(S,ss,args):
     t0 = time.time()
-    convfilename=f"{args.sexpfilename}_conv.csv"
-    if(not args.use_s2d):
-        if(os.path.isfile(convfilename)):
-            print("load ",convfilename)
-            S=[];ss=[];masks=[];target_masks=[]
-            with open(convfilename) as fp:
-                for l in fp.readlines():
-                    n=l.split("], [")
-                    for i,s in enumerate([S,ss,masks,target_masks]):
-                        s.append(n[i].replace("]","").replace("[","").split(", "))
-            S,ss,masks,target_masks=[toint(s) for s in [S,ss,masks,target_masks]]
-            print(f"read {len(S)} pairs from {convfilename}")
-        else:
-            #maskss=[masks_for_S,masks_for_SS]
-            tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss,show=False)
-            S,ss=tokenss
-            masks=maskss[0]
-            target_masks=maskss[1]
-            d=[S,ss,masks,target_masks]
-            with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.csv", "w") as f: 
-                for p in zip(d):
-                    print(p,file=f)
-        pairs=[list(p) for p in zip(S,ss,masks,target_masks)]
-        vocab_size=max([max(s) for s in S]+[max(s) for s in ss])+1
-        
-        print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
-        print("length of [S,ss,maksk,target_maksk]=",len(S[0]),len(ss[0]),len(masks),len(target_masks))
-        print("vacab size",vocab_size)
-        print("len pairs",len(pairs))
+    if(args.sexpfilename!=""):
+        convfilename=f"{args.sexpfilename}_conv.csv"
     else:
-         Dyks  = s2d.sexp_str_to_dyck_and_labels(S) 
-         ssDyks= s2d.sexp_str_to_dyck_and_labels(ss) 
-         vocab_size=1000
-         pairs = make_pairs(Dyks, ssDyks,masks)
+        convfilename=f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.csv"
+    #if(os.path.isfile(convfilename)):
+    try:
+        S,ss,masks,target_masks=loadconvertedfile(convfilename)
+    except Exception as e :
+        print(e)#invalid literal for int() with base 10: ')'
+        #maskss=[masks_for_S,masks_for_SS]
+        tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss,show=False)
+        S,ss=tokenss
+        masks=maskss[0]
+        target_masks=maskss[1]
+        d=[S,ss,masks,target_masks]
+        with open(convfilename, "w") as f: 
+            for p in zip(*d):
+                print(p,file=f)
+    pairs=[list(p) for p in zip(S,ss,masks,target_masks)]
+    try:
+        vocab_size=max([max(s) for s in S]+[max(s) for s in ss])+1
+    except Exception as e :
+            print(e)
+            print(S)
+            print(ss)
+            exit()
+        #print([max(s) for s in S],[max(s) for s in ss])
+    print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
+    print("length of [S,ss,maksk,target_maksk]=",len(S[0]),len(ss[0]),len(masks),len(target_masks))
+    print("vacab size",vocab_size)
+    print("len pairs",len(pairs))
     pairs=[[np.array(p[i]) for i in range(len(p))]  for p in pairs]
-
     return pairs,vocab_size
 
 def pipeline1(args,kind="any"):
