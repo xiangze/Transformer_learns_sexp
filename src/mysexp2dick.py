@@ -1,4 +1,4 @@
-from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union, Dict
 import torch
 
 def countparen(s: str) -> int:
@@ -121,16 +121,37 @@ def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
         return tokens,worddict,masks
     else:
         return [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in S],worddict,None
-
-def sexpss_to_tokens(S1:list,S2:list,show=False) -> List:
-    worddict=makedict(S1)
-    worddict.update(makedict(S2))
-    tokenss=[ [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in k] for k in [S1,S2]]
-    maxlen=max([len(sk) for tokens in tokenss for sk in tokens])
-    maskss=[[[int(i>=len(s)) for i in range(maxlen)] for s in ss ]for ss in [S1,S2]] 
-    #tokenss=[ padding(tokens,maxlen) for tokens in tokenss]
-    tokenss=[[s+[0]*(maxlen-len(s)) for s in tokens] for tokens in tokenss]
-    return tokenss,worddict, maskss
+# ---------------------------------------------------------------------------
+# トークン化 + マスク生成（バグ修正版）
+# ---------------------------------------------------------------------------
+def sexpss_to_tokens(
+    src_sexps: List[str],
+    tgt_sexps: List[str],
+    *,
+    show: bool = False,
+) -> Tuple[List[List[List[int]]], Dict[str, int], List[List[List[int]]]]:
+    """S式文字列のペアをトークン列に変換し、パディング+マスクを付与する。
+    Returns:
+        tokenss:  [[src_token_seqs], [tgt_token_seqs]]  （パディング済み）
+        worddict: トークン辞書
+        maskss:   [[src_masks], [tgt_masks]]
+                  各マスクは 0=有効, 1=パディング
+    """
+    # --- 辞書構築 ---
+    worddict = makedict(src_sexps)
+    worddict.update(makedict(tgt_sexps))
+    # --- トークン化 ---
+    tokenss = [
+            [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in sexps]
+                for sexps in (src_sexps, tgt_sexps)  ]
+    maxlen = max(len(seq) for seqs in tokenss for seq in seqs)
+    # === 修正: マスクはトークン化 *後* の長さで生成する ===
+    # 旧コードは元の文字列 (src_sexps / tgt_sexps) の len() を使っていたため、
+    # 文字列長とトークン列長が一致しないケースでマスクがずれていた。
+    maskss = [ [[int(i >= len(seq)) for i in range(maxlen)] for seq in seqs] for seqs in tokenss ]
+    # --- パディング ---
+    tokenss = [  [seq + [0] * (maxlen - len(seq)) for seq in seqs] for seqs in tokenss ]
+    return tokenss, worddict, maskss
 
 def sexps_to_tokens_onehot(S:list,show=False) -> List[List]:        
     Dycks,_=sexps_to_tokens(S,show=show)

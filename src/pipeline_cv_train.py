@@ -64,12 +64,12 @@ def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
 import transformer_dick_fixed_embed as fixed
 import Recursive_Ttansformer as recursive
 def make_model(params,model_kind,vocab_size,debug):
-    params["pad_id"]=0
+    params["pad_id"]=0 ##?
     #
     params["vocab_size"]=vocab_size
     if params["attentiononly"]:
         if params["recursive"]:
-            model=atn.AttentionOnlyFRecursiveRegressor(params,debug=debug,weightvisible=True)
+            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True)
         else:    
             model=atn.AttentionOnlyRegressor(params,debug=debug)
     elif model_kind == "fixed":
@@ -158,41 +158,110 @@ def loadconvertedfile(convfilename):
 """
 S式集合とその簡約化の集合を[one-hot token,文字列長]size list[list](行列相当)のpairに変換し、vocabrary size()とともに返す
 """
-def convert(S,ss,args):
+# ---------------------------------------------------------------------------
+# convert キャッシュ読み書き
+# ---------------------------------------------------------------------------
+def _build_cache_path(args) -> str:
+    """コマンドライン引数からキャッシュファイルのパスを決定する。"""
+    if args.sexpfilename:
+        return f"{args.sexpfilename}_conv.json"
+    return (
+        f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}"
+        f"_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.json"
+    )
+def save_converted(
+    path: str,
+    src_tokens: List[List[int]],
+    tgt_tokens: List[List[int]],
+    src_masks: List[List[int]],
+    tgt_masks: List[List[int]],
+) -> None:
+    """変換済みデータを JSON で書き出す。"""
+    data = {
+        "src_tokens": src_tokens,
+        "tgt_tokens": tgt_tokens,
+        "src_masks": src_masks,
+        "tgt_masks": tgt_masks,
+    }
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    print(f"[cache] saved {len(src_tokens)} pairs → {path}")
+
+def load_converted( path: str,
+    ) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+    """キャッシュ JSON を読み込み、4 つのリストを返す。
+    ファイルが存在しない・壊れている場合は例外を送出する。
+    """
+    print(f"[cache] loading {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    required_keys = {"src_tokens", "tgt_tokens", "src_masks", "tgt_masks"}
+    if not required_keys.issubset(data.keys()):
+        raise ValueError(f"キャッシュに必要なキーがありません: {required_keys - data.keys()}")
+    src_tokens = [list(map(int, row)) for row in data["src_tokens"]]
+    tgt_tokens = [list(map(int, row)) for row in data["tgt_tokens"]]
+    src_masks  = [list(map(int, row)) for row in data["src_masks"]]
+    tgt_masks  = [list(map(int, row)) for row in data["tgt_masks"]]
+    print(f"[cache] read {len(src_tokens)} pairs from {path}")
+    return src_tokens, tgt_tokens, src_masks, tgt_masks
+
+
+def convert(
+    src_sexps: List[str],  tgt_sexps: List[str],  args,
+) -> Tuple[List[List[np.ndarray]], int]:
+    """S式ペアをモデル入力用のトークン行列ペアに変換する。
+
+    1. キャッシュがあれば読み込む（JSON 形式）。
+    2. なければトークン化 → キャッシュ保存。
+    3. vocabulary size を算出して返す。
+
+    Args:
+        src_sexps:  元のS式文字列リスト
+        tgt_sexps:  簡約化後のS式文字列リスト
+        args:       コマンドライン引数（キャッシュパス生成用）
+
+    Returns:
+        pairs:      各要素が [src_tokens, tgt_tokens, src_mask, tgt_mask] の
+                    np.ndarray リスト
+        vocab_size: 語彙サイズ（最大トークン ID + 1）
+    """
     t0 = time.time()
-    if(args.sexpfilename!=""):
-        convfilename=f"{args.sexpfilename}_conv.csv"
+    cache_path = _build_cache_path(args)
+
+    # --- キャッシュ読み込み or 新規変換 ---
+    if os.path.isfile(cache_path):
+        try:
+            src_tokens, tgt_tokens, src_masks, tgt_masks = load_converted(cache_path)
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            print(f"[cache] 読み込み失敗 ({e})。再変換します。")
+            src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(
+                src_sexps, tgt_sexps, cache_path )
     else:
-        convfilename=f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt_conv.csv"
-    #if(os.path.isfile(convfilename)):
-    try:
-        S,ss,masks,target_masks=loadconvertedfile(convfilename)
-    except Exception as e :
-        print(e)#invalid literal for int() with base 10: ')'
-        #maskss=[masks_for_S,masks_for_SS]
-        tokenss,_,maskss=mys2d.sexpss_to_tokens(S,ss,show=False)
-        S,ss=tokenss
-        masks=maskss[0]
-        target_masks=maskss[1]
-        d=[S,ss,masks,target_masks]
-        with open(convfilename, "w") as f: 
-            for p in zip(*d):
-                print(p,file=f)
-    pairs=[list(p) for p in zip(S,ss,masks,target_masks)]
-    try:
-        vocab_size=max([max(s) for s in S]+[max(s) for s in ss])+1
-    except Exception as e :
-            print(e)
-            print(S)
-            print(ss)
-            exit()
-        #print([max(s) for s in S],[max(s) for s in ss])
-    print(f"converted: {len(pairs)} pairs in {time.time()-t0:.2f}s")
-    print("length of [S,ss,maksk,target_maksk]=",len(S[0]),len(ss[0]),len(masks),len(target_masks))
-    print("vacab size",vocab_size)
-    print("len pairs",len(pairs))
-    pairs=[[np.array(p[i]) for i in range(len(p))]  for p in pairs]
-    return pairs,vocab_size
+        src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(
+            src_sexps, tgt_sexps, cache_path )
+
+    # --- vocabulary size ---
+    all_token_maxes = [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]
+    vocab_size = max(all_token_maxes) + 1
+    # --- ペア化 & numpy 変換 ---
+    pairs = [ [np.array(s), np.array(t), np.array(sm), np.array(tm)]
+                for s, t, sm, tm in zip(src_tokens, tgt_tokens, src_masks, tgt_masks) ]
+    # --- ログ ---
+    elapsed = time.time() - t0
+    seq_len = len(src_tokens[0]) if src_tokens else 0
+    print(f"[convert] {len(pairs)} pairs, seq_len={seq_len}, "
+          f"vocab_size={vocab_size}, {elapsed:.2f}s")
+    return pairs, vocab_size
+
+def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+    """トークン化を実行し、結果をキャッシュに保存して返す。"""
+    tokenss, _worddict, maskss = mys2d.sexpss_to_tokens(src_sexps, tgt_sexps, show=False)
+    src_tokens, tgt_tokens = tokenss
+    src_masks, tgt_masks = maskss
+    save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
+    return src_tokens, tgt_tokens, src_masks, tgt_masks
+
 
 def pipeline1(args,kind="any"):
     args.n_sexps=1
