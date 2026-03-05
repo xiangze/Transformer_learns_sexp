@@ -92,7 +92,7 @@ class AttentionOnlyNet(nn.Module):
     Multi-Head Attention層のみが連続するネットワーク
     入力はすでに埋め込み済みids（形状: (batch, seq_len, d_model)）を想定
     """
-    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False):
+    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False,embedding=False):
         super().__init__()
         num_layers=params["num_layer"]
         self.pad_id=params["pad_id"]
@@ -101,22 +101,30 @@ class AttentionOnlyNet(nn.Module):
             self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible)])
         else:
             self.layers = nn.ModuleList([AttentionOnlyBlock(params)for _ in range(num_layers)])
-
+        
+        if(embedding):
+            self.tok = nn.Embedding(params["vocab_size"], params["d_model"])
+        else:
+            self.tok = None 
+        self.embedding=embedding
     def forward(self,
         ids: torch.Tensor,
         attn_mask: torch.Tensor | None = None,
         key_padding_mask: torch.Tensor | None = None,
         src_ids: torch.Tensor | None = None,   # ← token IDを別引数で受け取る
     ) -> torch.Tensor:
-        ids=ids.to(torch.float32)
-        if key_padding_mask is None:
+        if(self.embedding):
+            ids = self.tok(ids)
+        else:
+            ids=ids.to(torch.float32)
+        if key_padding_mask is None:# 2D: (batch, seq_len)
             if src_ids is not None:
-                key_padding_mask = (src_ids == self.pad_id)  # 2D: (batch, seq_len)
+                key_padding_mask = (src_ids == self.pad_id)  
                 #key_padding_mask = (ids == self.pad_id)
             elif attn_mask is not None:
-                B=params["batch_size"]
-                S=params["seq_len"]
+                B,S=params["batch_size"],params["seq_len"]
                 key_padding_mask=torch.tensor(attn_mask[0,:].repeat(B).reshape((B,S)),dtype=torch.bool)
+                key_padding_mask=~key_padding_mask
                 #key_padding_mask = (attn_mask == 0) # True=padding
             else:
                 raise ValueError("src_ids か attn_mask のどちらかが必要です")
@@ -177,13 +185,11 @@ if __name__ == "__main__":
 
     #no emmbedding
     ids=torch.randint(0,10,(params["batch_size"], params["seq_len"], params["d_model"]) ) # すでに埋め込み済みの入力　内部でfloatにする
-    mask= torch.tensor([ [1]*(params["seq_len"]-5) +[0]*5]* params["seq_len"],dtype=torch.bool)
+    mask= torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["seq_len"],dtype=torch.bool)
     if(args.key_padding_none):
         key_padding_mask=None
-        #src_ids=torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["batch_size"],dtype=torch.bool)
     else:
-        key_padding_mask=torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["batch_size"],dtype=torch.bool)
-        #src_ids=None
+        key_padding_mask=torch.tensor([ [1]*(params["seq_len"]-5) +[0]*5]* params["batch_size"],dtype=torch.bool)
     d={"Attention Only":AttentionOnlyNet,"Attention Only regressor":AttentionOnlyRegressor,"Attention Only Recursive Regressor":AttentionOnlyRecursiveRegressor}
     for k,v in d.items():
         print(k)
