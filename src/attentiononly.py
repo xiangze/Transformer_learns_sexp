@@ -114,7 +114,10 @@ class AttentionOnlyNet(nn.Module):
                 key_padding_mask = (src_ids == self.pad_id)  # 2D: (batch, seq_len)
                 #key_padding_mask = (ids == self.pad_id)
             elif attn_mask is not None:
-                key_padding_mask = (attn_mask == 0) # True=padding
+                B=params["batch_size"]
+                S=params["seq_len"]
+                key_padding_mask=torch.tensor(attn_mask[0,:].repeat(B).reshape((B,S)),dtype=torch.bool)
+                #key_padding_mask = (attn_mask == 0) # True=padding
             else:
                 raise ValueError("src_ids か attn_mask のどちらかが必要です")
         
@@ -177,14 +180,14 @@ if __name__ == "__main__":
     mask= torch.tensor([ [1]*(params["seq_len"]-5) +[0]*5]* params["seq_len"],dtype=torch.bool)
     if(args.key_padding_none):
         key_padding_mask=None
-        src_ids=torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["batch_size"],dtype=torch.bool)
+        #src_ids=torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["batch_size"],dtype=torch.bool)
     else:
         key_padding_mask=torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["batch_size"],dtype=torch.bool)
-        src_ids=None
+        #src_ids=None
     d={"Attention Only":AttentionOnlyNet,"Attention Only regressor":AttentionOnlyRegressor,"Attention Only Recursive Regressor":AttentionOnlyRecursiveRegressor}
     for k,v in d.items():
         print(k)
         net = v(params,debug=params["debug"])        
-        out = net(ids,mask, key_padding_mask,src_ids)
+        out = net(ids,mask, key_padding_mask)
         print(out)
 
