@@ -106,7 +106,7 @@ def train_one_fold(model,
     return model,train_loss,best_val_loss,last_val_loss
 
 simplekinds=["simple","meta","arith","add","meta","ring"]
-def genSexps(args):
+def genSexps(args,dump=True):
     t0 = time.time()
     if(args.sexpfilename!=""):
         with open(args.sexpfilename,"r",encoding="utf-8") as f:
@@ -122,9 +122,10 @@ def genSexps(args):
             SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars,debug=args.debug)
         else:
             SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
-        with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
-            for s in SS:
-                print(f"{s[0]},{s[1]},{s[2]}",file=f)            
+        if(dump):
+            with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
+                for s in SS:
+                    print(f"{s[0]},{s[1]},{s[2]}",file=f)            
         S, ss, steps = map(list, zip(*SS))
 
     if  steps is not None:
@@ -206,7 +207,6 @@ def load_converted( path: str,
     print(f"[cache] read {len(src_tokens)} pairs from {path}")
     return src_tokens, tgt_tokens, src_masks, tgt_masks
 
-
 def convert(
     src_sexps: List[str],  tgt_sexps: List[str],  args,
 ) -> Tuple[List[List[np.ndarray]], int]:
@@ -228,19 +228,19 @@ def convert(
     """
     t0 = time.time()
     cache_path = _build_cache_path(args)
-
     # --- キャッシュ読み込み or 新規変換 ---
     if os.path.isfile(cache_path):
         try:
             src_tokens, tgt_tokens, src_masks, tgt_masks = load_converted(cache_path)
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             print(f"[cache] 読み込み失敗 ({e})。再変換します。")
-            src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(
-                src_sexps, tgt_sexps, cache_path )
+            src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path )
     else:
-        src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(
-            src_sexps, tgt_sexps, cache_path )
-
+        src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path )
+        
+    print(f"src_tokens,{np.array(src_tokens).shape}, tgt_tokens {np.array(tgt_tokens).shape},\
+           src_masks {np.array(src_masks).shape}, tgt_masks {np.array(tgt_masks).shape}")
+    
     # --- vocabulary size ---
     all_token_maxes = [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]
     vocab_size = max(all_token_maxes) + 1
@@ -250,9 +250,8 @@ def convert(
     # --- ログ ---
     elapsed = time.time() - t0
     seq_len = len(src_tokens[0]) if src_tokens else 0
-    print(f"[convert] {len(pairs)} pairs, seq_len={seq_len}, "
-          f"vocab_size={vocab_size}, {elapsed:.2f}s")
-    return pairs, vocab_size
+    print(f"[convert] {len(pairs)} pairs, seq_len={seq_len}, vocab_size={vocab_size}, {elapsed:.2f}s")
+    return pairs, vocab_size,seq_len
 
 def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     """トークン化を実行し、結果をキャッシュに保存して返す。"""
@@ -266,7 +265,7 @@ def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path:
 def pipeline1(args,kind="any"):
     args.n_sexps=1
     args.want_kind=kind
-    S,ss,steps=genSexps(args)
+    S,ss,steps=genSexps(args,dump=False)
     pairs,vocab_size=convert(S,ss,args)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
     mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる
@@ -281,7 +280,7 @@ def pipeline(args,
     print("[1/5] Generating S-expressions...")
     S,ss,steps=genSexps(args)
     print("[3/5] Converting to Dyck language...")
-    pairs,vocab_size=convert(S,ss,args)
+    pairs,vocab_size,params_tr["seq_len"]=convert(S,ss,args)
     params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
 
     print("[4/5] K-fold training/evaluation...")
@@ -408,5 +407,6 @@ if __name__=="__main__":
             params_sexp["sexpfilename"]=args.sexpfilename
         params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
                           "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
-                          "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly}
+                          "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
+                          "batch_size":args.batch_size}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
