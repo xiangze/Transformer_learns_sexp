@@ -29,12 +29,20 @@ class AttentionOnlyBlock(nn.Module):
         key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # Self-attention
-        attn_out, _ = self.self_attn(
-            x, x, x,
-            attn_mask=attn_mask,
-            key_padding_mask=key_padding_mask,
-            need_weights=self.weightvisible,
-        )
+        try:
+            attn_out, _ = self.self_attn(
+                x, x, x,
+                attn_mask=attn_mask,
+                key_padding_mask=key_padding_mask,
+                need_weights=self.weightvisible,
+            )
+        except Exception as e :
+            print(e)
+            print("x",x.shape)
+            print("attn_mask",attn_mask.shape)
+            print("key_padding_mask",key_padding_mask.shape)
+            exit()
+
         # 残差 + LayerNorm
         x = x + self.dropout(attn_out)
         x = self.norm(x)
@@ -101,7 +109,7 @@ class AttentionOnlyNet(nn.Module):
         num_layers=params["num_layer"]
         self.pad_id=params["pad_id"]
         self.debug=debug
-        self.betch_size=params["batch_size"]
+        self.batch_size=params["batch_size"]
         self.seq_len=params["seq_len"]
         if(recursive):
             self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible)])
@@ -122,31 +130,36 @@ class AttentionOnlyNet(nn.Module):
     ) -> torch.Tensor:
         
         if(self.embedding):
-            ids = self.tok(ids)
             ids=self.tok(ids)
         else:
             ids=ids.to(torch.float32)
-            attn_mask=attn_mask.to(torch.float32)
+            attn_mask=attn_mask.to(torch.bool)
 
         if key_padding_mask is None:# 2D: (batch, seq_len)
             if src_ids is not None:
                 key_padding_mask = (src_ids == self.pad_id)  
-                #key_padding_mask = (ids == self.pad_id)
             elif attn_mask is not None:
-                key_padding_mask=torch.tensor(attn_mask[0,:].repeat(self.betch_size).reshape((self.betch_size,self.seq_len)),dtype=torch.bool)
-                key_padding_mask=~key_padding_mask
-                #key_padding_mask = (attn_mask == 0) # True=padding
+                if(ids.ndim==2):
+                    key_padding_mask=attn_mask[0,:].to(torch.bool)
+                    #key_padding_mask=~key_padding_mask #temporal
+                    key_padding_mask[0] = False
+                    key_padding_mask=key_padding_mask.squeeze()
+                    assert(key_padding_mask.ndim==1),f"attn_mask {attn_mask.shape},key_padding_mask {key_padding_mask.shape},{key_padding_mask.ndim}"
+                    valid = (~key_padding_mask)
+                else:
+                    key_padding_mask=torch.tensor(attn_mask[0,:].repeat(self.batch_size).reshape((self.batch_size,self.seq_len)),dtype=torch.bool)
+                    #key_padding_mask=~key_padding_mask  #temporal
+                    key_padding_mask[:, 0] = False
+                    #key_padding_mask = (attn_mask == 0) # True=padding
+                    valid = (~key_padding_mask).sum(dim=1)
             else:
                 raise ValueError("src_ids か attn_mask のどちらかが必要です")
         
-        key_padding_mask[:, 0] = False
-
         if(self.debug):
             print("ids",ids)
             print("attn_mask",attn_mask)
             print("key_padding_mask",key_padding_mask,key_padding_mask.dtype)
-            
-        valid = (~key_padding_mask).sum(dim=1)
+          
         assert torch.all(valid > 0), "Some sequences fully masked!"
 
         for layer in self.layers:
