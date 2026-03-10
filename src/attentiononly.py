@@ -111,15 +111,17 @@ class AttentionOnlyNet(nn.Module):
         self.debug=debug
         self.batch_size=params["batch_size"]
         self.seq_len=params["seq_len"]
+
+        if(embedding):
+            self.tok = nn.Embedding(params["vocab_size"], params["d_model"])
+        else:
+            self.tok = None 
+
         if(recursive):
             self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible)])
         else:
             self.layers = nn.ModuleList([AttentionOnlyBlock(params)for _ in range(num_layers)])
         
-        if(embedding):
-            self.tok = nn.Embedding(params["vocab_size"], params["d_model"])
-        else:
-            self.tok = None 
 
         self.embedding=embedding
     def forward(self,
@@ -151,15 +153,21 @@ class AttentionOnlyNet(nn.Module):
                     #key_padding_mask=~key_padding_mask  #temporal
                     key_padding_mask[:, 0] = False
                     #key_padding_mask = (attn_mask == 0) # True=padding
-                    valid = (~key_padding_mask).sum(dim=1)
+
             else:
                 raise ValueError("src_ids か attn_mask のどちらかが必要です")
-        
+
+        if(key_padding_mask.ndim==2):
+            valid = (~key_padding_mask).sum(dim=1)
+        else:
+            valid = (~key_padding_mask)    
+
         if(self.debug):
             print("ids",ids)
             print("attn_mask",attn_mask)
             print("key_padding_mask",key_padding_mask,key_padding_mask.dtype)
-          
+            print("valid",valid)
+            
         assert torch.all(valid > 0), "Some sequences fully masked!"
 
         for layer in self.layers:
@@ -173,7 +181,7 @@ class AttentionOnlyNet(nn.Module):
 class AttentionOnlyRegressor(AttentionOnlyNet):
     def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False,embedding=False):
         super().__init__(params,debug,recursive,weightvisible,embedding)
-        d_model=params["d_model"]
+        d_model=params["d_model"]        
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
             nn.Linear(d_model, 1)
@@ -203,19 +211,32 @@ if __name__ == "__main__":
         "num_layer" :3,
         "dropout":0.1,
         "pad_id":0,
+        "vocab_size":100,
     }
+
     params["debug"]=args.debug
-    #no emmbedding
-    ids=torch.randint(0,10,(params["batch_size"], params["seq_len"], params["d_model"]) ) # すでに埋め込み済みの入力　内部でfloatにする
-    mask= torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["seq_len"],dtype=torch.bool)
-    if(args.key_padding_none):
-        key_padding_mask=None
-    else:
-        key_padding_mask=torch.tensor([ [1]*(params["seq_len"]-5) +[0]*5]* params["batch_size"],dtype=torch.bool)
-    d={"Attention Only":AttentionOnlyNet,"Attention Only regressor":AttentionOnlyRegressor,"Attention Only Recursive Regressor":AttentionOnlyRecursiveRegressor}
-    for k,v in d.items():
-        print(k)
-        net = v(params,debug=params["debug"])        
-        out = net(ids,mask, key_padding_mask,embedding=params["embedding"])
-        print(out)
+    params["embedding"]=args.with_embedding
+
+    for embedding in [True,False]:
+        params["embedding"]=embedding
+        print("embedding",embedding)
+        if(embedding):
+            #params["vocab_size"]=params["d_model"]
+            ids=torch.rand(params["batch_size"], params["seq_len"], params["d_model"])
+            mask= torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["seq_len"],dtype=torch.bool)
+        else:  #no emmbedding
+            
+            ids=torch.randint(0,10,(params["batch_size"], params["seq_len"], params["d_model"]) ) # すでに埋め込み済みの入力　内部でfloatにする
+            mask= torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["seq_len"],dtype=torch.bool)
+
+        if(args.key_padding_none):
+            key_padding_mask=None
+        else:
+            key_padding_mask=torch.tensor([ [1]*(params["seq_len"]-5) +[0]*5]* params["batch_size"],dtype=torch.bool)
+        d={"Attention Only":AttentionOnlyNet,"Attention Only regressor":AttentionOnlyRegressor,"Attention Only Recursive Regressor":AttentionOnlyRecursiveRegressor}
+        for k,v in d.items():
+            print(k)
+            net = v(params,debug=params["debug"])        
+            out = net(ids,mask, key_padding_mask)
+            print(out)
 
