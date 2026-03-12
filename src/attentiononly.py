@@ -3,51 +3,6 @@ import torch
 import torch.nn as nn
 import transformer_dick_fixed_embed as tr
 
-class AttentionOnlyBlock(nn.Module):
-    """Multi-Head Self-Attention + 残差 + LayerNorm（MLPなし）"""
-    def __init__(self, params:dict,debug=False, weightvisible=False):
-        super().__init__()
-        d_model=params["d_model"]
-        n_heads=params["nhead"]
-        #max_len= params["max_len"]  #pad_id=params["pad_id"]
-        dropout=params["dropout"]
-
-        self.self_attn = nn.MultiheadAttention(
-            embed_dim=d_model,
-            num_heads=n_heads,
-            dropout=dropout,
-            batch_first=True,  # (batch, seq, dim) で扱えるようにする
-        )
-        self.weightvisible=weightvisible
-        self.dropout = nn.Dropout(dropout)
-        self.norm = nn.LayerNorm(d_model)
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        attn_mask: torch.Tensor | None = None,
-        key_padding_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        # Self-attention
-        try:
-            attn_out, _ = self.self_attn(
-                x, x, x,
-                attn_mask=attn_mask,
-                key_padding_mask=key_padding_mask,
-                need_weights=self.weightvisible,
-            )
-        except Exception as e :
-            print(e)
-            print("x",x.shape)
-            print("attn_mask",attn_mask.shape)
-            print("key_padding_mask",key_padding_mask.shape)
-            exit()
-
-        # 残差 + LayerNorm
-        x = x + self.dropout(attn_out)
-        x = self.norm(x)
-        return x
-
 class SharedAttentionOnly(nn.Module):
     """
     RNN風Attention Only Layer
@@ -81,23 +36,40 @@ class SharedAttentionOnly(nn.Module):
         if(self.debug):
             print("x",x_tok.shape)
             print("B,L",self.B, self.L)
+            print("key_padding_mask",key_padding_mask)
+            print("attn_mask",attn_mask)
+
         pos_ids = torch.arange(self.L, device=x_tok.device, dtype=x_tok.dtype).unsqueeze(0).expand(self.B, self.L)
         h = x_tok + pos_ids.unsqueeze(-1)  # broadcast over d_model
 
-        if(self.debug):
-            print("key_padding_mask",key_padding_mask)
-            print("attn_mask",attn_mask)
         for t in range(self.steps):
             if self.step_embed is not None:
                 step_ids = torch.full((self.B, self.L), t, dtype=torch.long, device=x_tok.device)
                 h = h + self.step_embed(step_ids)
-            attn_out ,_ = self.attn(
-                h,h,h,
-                key_padding_mask=key_padding_mask,
-                attn_mask=attn_mask,
-                need_weights=self.weightvisible)   #可視化したいときはTrue
-            h=attn_out
+            try:
+                attn_out ,_ = self.attn(
+                    h,h,h,
+                    key_padding_mask=key_padding_mask,
+                    #attn_mask=attn_mask,
+                    need_weights=self.weightvisible)   #可視化したいときはTrue
+                h=attn_out
+            except Exception as e :
+                print(e)
+                print("h",h.shape)
+                print("attn_mask",attn_mask.shape,attn_mask.dtype)
+                print("key_padding_mask",key_padding_mask.shape,key_padding_mask.dtype)
+                exit()
+            
+        # 残差 + LayerNorm
+        h = h + self.dropout(h)
+        h = self.norm(h)
         return h #self.norm(h)+ self.dropout(attn_out)
+
+class AttentionOnlyBlock(SharedAttentionOnly):
+    """Multi-Head Self-Attention + 残差 + LayerNorm（MLPなし）"""
+    def __init__(self, params:dict,debug=False, weightvisible=False):#可視化したいときはTrue
+        super().__init__(params,debug,weightvisible)
+        self.steps=1
 
 class AttentionOnlyNet(nn.Module):
     """
@@ -121,8 +93,7 @@ class AttentionOnlyNet(nn.Module):
             self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible)])
         else:
             self.layers = nn.ModuleList([AttentionOnlyBlock(params)for _ in range(num_layers)])
-        
-
+   
         self.embedding=embedding
     def forward(self,
         ids: torch.Tensor,
@@ -225,7 +196,6 @@ if __name__ == "__main__":
             ids=torch.rand(params["batch_size"], params["seq_len"], params["d_model"])
             mask= torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["seq_len"],dtype=torch.bool)
         else:  #no emmbedding
-            
             ids=torch.randint(0,10,(params["batch_size"], params["seq_len"], params["d_model"]) ) # すでに埋め込み済みの入力　内部でfloatにする
             mask= torch.tensor([ [0]*(params["seq_len"]-5) +[1]*5]* params["seq_len"],dtype=torch.bool)
 
