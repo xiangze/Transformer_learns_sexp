@@ -64,22 +64,31 @@ def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
 import transformer_dick_fixed_embed as fixed
 import Recursive_Ttansformer as recursive
 def make_model(params,model_kind,vocab_size,debug):
+    embedding=not params["noembedded"]
     params["pad_id"]=0 ##?
-    #
     params["vocab_size"]=vocab_size
+    if(debug):
+        print("batch_size",params["batch_size"])
+        print("d_model",params["d_model"])
+        print("seq_len",params["seq_len"])
+        print("vocab_size",vocab_size)
+    
+    
     if params["attentiononly"]:
         if params["recursive"]:
-            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True)
+            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding)
         else:    
-            model=atn.AttentionOnlyRegressor(params,debug=debug)
-    elif model_kind == "fixed":
-        model=fixed.TransformerRegressor(params,debug=debug)
-    elif model_kind == "outQK":
-        model=fixed.TransformerRegressor(params,debug=debug,outQK=True)
+            model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding)
     else:
-        raise ValueError("model_kind must be 'fixed' or 'recursive'.")
+        if model_kind == "recursive":
+            model=fixed.TransformerRegressor(params,debug=debug,recursive=True)
+        elif model_kind == "fixed":
+            model=fixed.TransformerRegressor(params,debug=debug)
+        elif model_kind == "outQK":
+            model=fixed.TransformerRegressor(params,debug=debug,outQK=True)
+        else:
+            raise ValueError("model_kind must be 'fixed' or 'recursive'.")
     return model
-
 
 def train_one_fold(model,
                    ds_train, ds_val,
@@ -189,8 +198,7 @@ def save_converted(
         json.dump(data, f)
     print(f"[cache] saved {len(src_tokens)} pairs → {path}")
 
-def load_converted( path: str,
-    ) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+def load_converted( path: str, ) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     """キャッシュ JSON を読み込み、4 つのリストを返す。
     ファイルが存在しない・壊れている場合は例外を送出する。
     """
@@ -245,12 +253,16 @@ def convert(
     all_token_maxes = [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]
     vocab_size = max(all_token_maxes) + 1
     # --- ペア化 & numpy 変換 ---
-    pairs = [ [np.array(s), np.array(t), np.array(sm), np.array(tm)]
+    pairs = [ [np.array(s), np.array(t), np.array(sm,dtype=float), np.array(tm,dtype=float)]
                 for s, t, sm, tm in zip(src_tokens, tgt_tokens, src_masks, tgt_masks) ]
     # --- ログ ---
     elapsed = time.time() - t0
     seq_len = len(src_tokens[0]) if src_tokens else 0
-    print(f"[convert] {len(pairs)} pairs, seq_len={seq_len}, vocab_size={vocab_size}, {elapsed:.2f}s")
+    if(args.noembedded):
+        pairs[0][2]=pairs[0][2].repeat(len(pairs[0][2]))
+        pairs[0][3]=pairs[0][3].repeat(len(pairs[0][3]))
+    
+    print(f"[convert] {len(pairs)} pairs, seq_len={seq_len}, vocab_size={vocab_size}, src_mask={pairs[0][2].shape}, attn_mask={pairs[0][3].shape} {elapsed:.2f}s")
     return pairs, vocab_size,seq_len
 
 def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
@@ -261,12 +273,11 @@ def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path:
     save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
     return src_tokens, tgt_tokens, src_masks, tgt_masks
 
-
 def pipeline1(args,kind="any"):
     args.n_sexps=1
     args.want_kind=kind
     S,ss,steps=genSexps(args,dump=False)
-    pairs,vocab_size=convert(S,ss,args)
+    pairs,vocab_size,seq_len=convert(S,ss,args)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
     mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる
     return ds[0].to(args.device),mask,vocab_size
@@ -321,15 +332,17 @@ def pipeline(args,
                 msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
                 print(msg)
                 print(msg,file=fpw)
-                print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attention")
-                print("--- sample inpuit")
-                xin,mask,_vocab_size=pipeline1(args,args.want_kind)
-                print("--- sample inpuit(end)")
-                #assert(_vocab_size==vocab_size)
-                print("xin",xin,xin.shape,"mask",mask)
-                vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
-                #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
-                vis.show_QKV(model.enc, "QKV_"+pname+"rand",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
+                print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions")
+                for i  in range(args.n_eval):
+                    print("--- sample input{num_of_eval}")
+                    xin,mask,_vocab_size=pipeline1(args,args.want_kind)
+                    print("xin",xin,xin.shape,"mask",mask,"vocab_size",_vocab_size)
+                    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
+                    try:
+                        #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
+                        vis.show_QKV(model.enc, f"QKV_{pname}_{k}_{i}",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
+                    except:
+                        pass
 
 def run_all(args,out_root):
     for n,depth,n_free_vars,head,layer,kind in itertools.product(
@@ -380,7 +393,9 @@ if __name__=="__main__":
     parser.add_argument("--dropout",   type=float, default=0.2,help="dropout")
     parser.add_argument("--recursive",   action="store_true")   
     parser.add_argument("--attentiononly",   action="store_true")   
+    parser.add_argument("--noembedded",   action="store_true")   
     # others
+    parser.add_argument("--n_eval",    type=int, default=2, help="eval num")
     parser.add_argument("--output_dir", type=str, default="./runs/exp")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--all", action="store_true")
@@ -408,5 +423,5 @@ if __name__=="__main__":
         params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
                           "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
                           "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
-                          "batch_size":args.batch_size}
+                          "batch_size":args.batch_size,"noembedded":args.noembedded}
         pipeline(args, params_sexp,params_tr,out_root=out_root)

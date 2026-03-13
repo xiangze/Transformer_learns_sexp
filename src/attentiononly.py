@@ -1,7 +1,6 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
-import transformer_dick_fixed_embed as tr
 
 class SharedAttentionOnly(nn.Module):
     """
@@ -13,7 +12,8 @@ class SharedAttentionOnly(nn.Module):
         d_model=params["d_model"]
         dropout=params["dropout"]        
         n_heads=params["nhead"]
-        self.attn = nn.MultiheadAttention(
+        """Multi-Head Self-Attention + 残差 + LayerNorm（MLPなし）"""
+        self.self_attn = nn.MultiheadAttention(
             embed_dim=d_model,
             num_heads=n_heads,
             dropout=dropout,
@@ -24,49 +24,44 @@ class SharedAttentionOnly(nn.Module):
         self.step_embed = None
         self.weightvisible=weightvisible
         self.debug=debug
-        self.B=params["batch_size"]
-        self.L=params["seq_len"]
 
     def forward(self,
         x_tok: torch.Tensor,                 # (B, L, d_model) すでにトークン側で埋め込み済み
         attn_mask: torch.Tensor = None,         # (L, L) など（必要な場合）
         key_padding_mask: torch.Tensor = None,  # (B, L) 1=keep/0=pad なら (==0) を渡す
     ) -> torch.Tensor:
-        #B, L,d_model  = x_tok.shape
+        _, self.L, _  = x_tok.shape
         if(self.debug):
             print("x",x_tok.shape)
-            print("B,L",self.B, self.L)
             print("key_padding_mask",key_padding_mask)
             print("attn_mask",attn_mask)
-
-        pos_ids = torch.arange(self.L, device=x_tok.device, dtype=x_tok.dtype).unsqueeze(0).expand(self.B, self.L)
-        h = x_tok + pos_ids.unsqueeze(-1)  # broadcast over d_model
-
+        pos_ids = torch.arange(self.L, dtype=x_tok.dtype,device=x_tok.device).unsqueeze(0).expand(x_tok.shape[0], self.L).unsqueeze(-1)
+        h = x_tok + pos_ids
+        if(self.debug):
+            print("h",h.shape)
         for t in range(self.steps):
             if self.step_embed is not None:
-                step_ids = torch.full((self.B, self.L), t, dtype=torch.long, device=x_tok.device)
+                step_ids = torch.full_like(h, t, dtype=torch.long)
                 h = h + self.step_embed(step_ids)
             try:
-                attn_out ,_ = self.attn(
+                attn_out ,_ = self.self_attn(
                     h,h,h,
                     key_padding_mask=key_padding_mask,
                     #attn_mask=attn_mask,
                     need_weights=self.weightvisible)   #可視化したいときはTrue
-                h=attn_out
             except Exception as e :
                 print(e)
                 print("h",h.shape)
                 print("attn_mask",attn_mask.shape,attn_mask.dtype)
                 print("key_padding_mask",key_padding_mask.shape,key_padding_mask.dtype)
                 exit()
-            
+            h=attn_out            
         # 残差 + LayerNorm
         h = h + self.dropout(h)
         h = self.norm(h)
         return h #self.norm(h)+ self.dropout(attn_out)
 
 class AttentionOnlyBlock(SharedAttentionOnly):
-    """Multi-Head Self-Attention + 残差 + LayerNorm（MLPなし）"""
     def __init__(self, params:dict,debug=False, weightvisible=False):#可視化したいときはTrue
         super().__init__(params,debug,weightvisible)
         self.steps=1
@@ -120,11 +115,12 @@ class AttentionOnlyNet(nn.Module):
                     assert(key_padding_mask.ndim==1),f"attn_mask {attn_mask.shape},key_padding_mask {key_padding_mask.shape},{key_padding_mask.ndim}"
                     valid = (~key_padding_mask)
                 else:
-                    key_padding_mask=torch.tensor(attn_mask[0,:].repeat(self.batch_size).reshape((self.batch_size,self.seq_len)),dtype=torch.bool)
+                    a=ids.shape[0]
+                    #key_padding_mask=torch.tensor(attn_mask[0,:].clone().detach().repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool)
+                    key_padding_mask=torch.tensor(attn_mask[0,:].repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool).clone().detach()
                     #key_padding_mask=~key_padding_mask  #temporal
                     key_padding_mask[:, 0] = False
                     #key_padding_mask = (attn_mask == 0) # True=padding
-
             else:
                 raise ValueError("src_ids か attn_mask のどちらかが必要です")
 

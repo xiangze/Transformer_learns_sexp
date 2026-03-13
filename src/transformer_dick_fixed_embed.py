@@ -10,6 +10,8 @@ from sexpdata import Symbol, dumps, loads
 import util
 from torch.nn.functional import _in_projection_packed
 import math
+import attentiononly as at
+
 # =========================================================
 # PyTorch Dataset / Collate
 # =========================================================
@@ -72,9 +74,14 @@ def attach_encoder_attn_hooks(
 
     for i, layer in enumerate(encoder.layers):
         # self_attn を差し替え
-        if isinstance(layer.self_attn, nn.MultiheadAttention):
-            layer.self_attn = ForceWeightsMHA(layer.self_attn, average_attn_weights=average_attn_weights)
-
+        try: 
+            if  isinstance(layer.self_attn, nn.MultiheadAttention):
+                layer.self_attn = ForceWeightsMHA(layer.self_attn, average_attn_weights=average_attn_weights)
+            # elif hasattr(layer,"attn") and isinstance(layer.attn , at.SharedAttentionOnly):
+            #     layer.self_attn = ForceWeightsMHA(layer.attn, average_attn_weights=average_attn_weights)
+        except:
+            raise ValueError("layer should have self_attn or attn")
+            
         def make_hook(layer_name: str):
             def hook(module, inputs, outputs):
                 # outputs は (attn_output, attn_weights)
@@ -108,12 +115,17 @@ def attach_all_encoder_attn_hooks(
     handles_all: List[torch.utils.hooks.RemovableHandle] = []
 
     for module_path, module in model.named_modules():
-        if isinstance(module, nn.TransformerEncoder):
-            attn_by_layer, handles = attach_encoder_attn_hooks(
-                module, average_attn_weights=average_attn_weights, )
-            attn_maps_by_encoder[module_path] = attn_by_layer
-            handles_all.extend(handles)
-
+        if isinstance(module, nn.TransformerEncoder) or isinstance(module, at.AttentionOnlyNet) or isinstance(model,at.AttentionOnlyRegressor):
+#            print("**encoder ",module,module_path)
+#            print("**encoder layers",module.layers)
+            if(hasattr(module,"layers")):
+                attn_by_layer, handles = attach_encoder_attn_hooks(
+                    module, average_attn_weights=average_attn_weights, )
+                attn_maps_by_encoder[module_path] = attn_by_layer
+                handles_all.extend(handles)
+        else:
+            print(type(model))
+            raise ValueError("model should be TransformerEncoder or at.AttentionOnlyNet")
     return attn_maps_by_encoder, handles_all
 
 @torch.no_grad()
@@ -235,7 +247,7 @@ class EncoderLayerWithQK(nn.TransformerEncoderLayer):
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
 # =========================================================
 class TransformerRegressor(nn.Module):
-    def __init__(self, params:dict,debug=False,outQK=False):
+    def __init__(self, params:dict,debug=False,outQK=False,recusive=False):
         super().__init__()
         vocab_size=params["vocab_size"]
         d_model=params["d_model"]
@@ -249,16 +261,19 @@ class TransformerRegressor(nn.Module):
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
         self.debug=debug
-        if(not outQK):
-            enc_layer = nn.TransformerEncoderLayer(
-                d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
-                dropout=dropout, batch_first=True, activation="gelu"
-            )
-        else:
-            enc_layer = EncoderLayerWithQK(
-                d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
-                dropout=dropout, batch_first=True, activation="gelu"
-            )
+        if(self.recursive):
+            enc_layer = at.SharedAttentionOnly(params,debug,weightvidible=True)
+            num_layers=1
+            if(not outQK):
+                enc_layer = nn.TransformerEncoderLayer(
+                    d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+                    dropout=dropout, batch_first=True, activation="gelu"
+                )
+            else:
+                enc_layer = EncoderLayerWithQK(
+                    d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+                    dropout=dropout, batch_first=True, activation="gelu"
+                )
         self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
         
         self.head = nn.Sequential(
@@ -277,7 +292,9 @@ class TransformerRegressor(nn.Module):
                 x = self.tok(input_ids) + self.pos(pos_ids)
                 print("tok",self.tok.weight.detach().cpu())
                 print("pos",self.pos.weight.detach().cpu())
-            except:
+                print("attn_make",attn_mask.shape)
+            except Exception as e:
+                print("Exception! ",e)
                 print("shape",self.tok(input_ids).shape)
                 print("pos",pos_ids.shape)
                 print("pos",pos_ids)
@@ -306,6 +323,7 @@ class TransformerRegressor(nn.Module):
     def add_hook(self, average_attn_weights=False):
         self.attn_dict, self.hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights)        
         return self.attn_dict, self.hooks
+    
 if __name__ == "__main__":
     import torch.optim as optim
     params = {
