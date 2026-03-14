@@ -143,6 +143,7 @@ class AttentionOnlyNet(nn.Module):
                 attn_mask,          # (L,L) causal mask
                 key_padding_mask=key_padding_mask,
             )
+            assert not (torch.isnan(ids).any()),f"ids {ids}"
         return ids
 
 class AttentionOnlyRegressor(AttentionOnlyNet):

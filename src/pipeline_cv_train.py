@@ -282,6 +282,34 @@ def pipeline1(args,kind="any"):
     mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる
     return ds[0].to(args.device),mask,vocab_size
 
+def eval_show(args,params_tr,model,i,vocab_size,pname,k):
+    print(f"--- sample input {i}/{args.n_eval}")
+    xin,mask,_vocab_size=pipeline1(args,args.want_kind)
+    xout=model(xin,mask)
+    assert(not torch.isnan(xout).any()),f"xout{xout}"
+    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
+    try:
+        #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
+        vis.show_QKV(model.enc, f"QKV_{pname}_{k}_{i}",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
+    except:
+        print("fail to make QKV")
+        pass
+
+def makesuf(params_tr,params_sexp):
+    pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
+    pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
+    for k,v in {"sexpfilename__":"","want_":"","num_free_vars":"var","num_layer":"l","d_model":"d_",
+                "seq_len":"seq","max_depth":"depth","batch_size":"b"}.items():
+        pname=pname.replace(k,v)
+    if(params_tr["recursive"]):
+        pname+="_recur"
+    if(params_tr["attentiononly"]):
+        pname+="_ato"
+    if(params_tr["noembedded"]):    
+        pname+="_noemb"
+    return pname
+
+
 def pipeline(args,
              params_sexp:dict,
              params_tr: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096,"dropout":0.2},
@@ -295,11 +323,7 @@ def pipeline(args,
     params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
 
     print("[4/5] K-fold training/evaluation...")
-
-    pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
-    pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
-    pname=pname.replace("sexpfilename__","").replace("want_","").replace("num_free_vars","freevars").replace("num_layer","nlayer").replace("d_model","d_")
-
+    pname=makesuf(params_tr,params_sexp)
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
@@ -334,15 +358,8 @@ def pipeline(args,
                 print(msg,file=fpw)
                 print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions")
                 for i  in range(args.n_eval):
-                    print("--- sample input{num_of_eval}")
-                    xin,mask,_vocab_size=pipeline1(args,args.want_kind)
-                    print("xin",xin,xin.shape,"mask",mask,"vocab_size",_vocab_size)
-                    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
-                    try:
-                        #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
-                        vis.show_QKV(model.enc, f"QKV_{pname}_{k}_{i}",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
-                    except:
-                        pass
+                    eval_show(args,params_tr,model,i,vocab_size,pname,k,i)
+                print("Fin.")
 
 def run_all(args,out_root):
     for n,depth,n_free_vars,head,layer,kind in itertools.product(

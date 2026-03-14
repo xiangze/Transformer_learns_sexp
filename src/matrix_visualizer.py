@@ -204,6 +204,7 @@ def plot_multi_attention_heatmaps(attn_maps_by_encoder:dict,params,out_dir="./",
             ax.set_xlabel("Key")
             ax.set_ylabel("Query")
             ax.grid(True)
+    assert global_min<=global_max, f"xs {xs}"
     fig.suptitle(pname)
     cbar = ax.figure.colorbar(im, ax=ax, **{})
     cbar.ax.set_ylabel("", rotation=-90, va="bottom")
@@ -232,7 +233,8 @@ def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask
             attn_maps_by_encoder, handles = tr.attach_all_encoder_attn_hooks(model,average_attn_weights=False)# head ごとに取りたいなら False
             pname="Amat_"+pname
             # forward を 1 回回す（ここで辞書が埋まる）
-            model(x,mask)
+            x=model(x,mask)
+            assert(not torch.isnan(x).any())
             # torch.backends.cuda.enable_flash_sdp(False)
             # torch.backends.cuda.enable_mem_efficient_sdp(False)
             # torch.backends.cuda.enable_math_sdp(True)
