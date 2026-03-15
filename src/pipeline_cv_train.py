@@ -3,7 +3,7 @@
   S式の生成(S) → 評価(ss) → Dyck変換(D, dd) → K-fold交差検証で学習・評価
   モデルは transformer_dick_fixed_embed.py（--model fixed）
            または Recursive_Transformere.py（--model recursive）
-  学習後に matrix_visualizer.py があればAttention行列を保存（--visualize）
+  matrix_visualizer.py でAttention行列を可視化、保存
 """
 from __future__ import annotations
 import argparse
@@ -11,6 +11,7 @@ import json
 import os
 import random
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import util
@@ -27,6 +28,98 @@ import randhof_with_weight as hof
 import numpy as np
 import attentiononly as atn
 import itertools
+
+@dataclass
+class PipelineArgs:
+    # S-exp params
+    n_sexps: int = 30000  # 生成するS式サンプル数
+    n_free_vars: int = 4  # 各S式の自由変数の数
+    max_depth: int = 4  # 各S式の最大深さ
+    sexpfilename: str = ""  # use sexp from file
+    max_data_num: int = 0  # 最大データ数（0で無制限）
+    want_kind: str = "int"  # 生成したい式の種類
+    # learning params
+    kfold: int = 5  # 交差検証のfold数
+    model: str = "fixed"  # モデル種別: fixed/recursive/attentiononly/outQK
+    epochs: int = 100  # 学習エポック数
+    batch_size: int = 64  # バッチサイズ
+    seed: int = 42  # 乱数シード
+    device: str = "cuda"  # device(cpu/cuda)
+    evalperi: int = 100  # evaluation period during training
+    # Transformer params
+    d_model: int = 256  # depth of model
+    nhead: int = 8  # num. of heads
+    num_layer: int = 4  # num. of layers
+    dim_ff: int = 256  # dim. of FNN
+    max_len: int = 4096  # max length of input sequence
+    dropout: float = 0.2  # dropout
+    recursive: bool = False  # recursive attention variant flag
+    attentiononly: bool = False  # attention-only model flag
+    noembedded: bool = False  # disable token embedding
+    # others
+    n_eval: int = 2  # eval num
+    output_dir: str = "./runs/exp"  # output directory
+    debug: bool = False  # debug mode
+    all: bool = False  # run all experiment grid
+    small: bool = False  # run reduced experiment grid
+    force_train: bool = False  # retrain even if checkpoint exists
+    simple: bool = False  # run only simple kind grid
+    use_amp: bool = False  # mixed precision training
+    # old
+    use_s2d: bool = False  # legacy flag
+
+
+def build_parser() -> argparse.ArgumentParser:
+    defaults = PipelineArgs()
+    parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでTransformer学習・可視化まで一括実行")
+    # S-exp params
+    parser.add_argument("--n_sexps", type=int, default=defaults.n_sexps, help="生成するS式サンプル数")
+    parser.add_argument("--n_free_vars", type=int, default=defaults.n_free_vars, help="各S式の自由変数の数")
+    parser.add_argument("--max_depth", type=int, default=defaults.max_depth, help="各S式の最大深さ")
+    parser.add_argument("--sexpfilename", type=str, default=defaults.sexpfilename, help="use sexp from file")
+    parser.add_argument("--max_data_num", type=int, default=defaults.max_data_num)
+    parser.add_argument("--want_kind", type=str, default=defaults.want_kind)
+    # learning params
+    parser.add_argument("--kfold", type=int, default=defaults.kfold, help="交差検証のfold数")
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["fixed", "recursive", "attentiononly", "outQK"],
+        default=defaults.model,
+    )
+    parser.add_argument("--epochs", type=int, default=defaults.epochs)
+    parser.add_argument("--batch_size", type=int, default=defaults.batch_size)
+    parser.add_argument("--seed", type=int, default=defaults.seed)
+    parser.add_argument("--device", type=str, default=defaults.device, help="device(cpu/cuda)")
+    parser.add_argument("--evalperi", type=int, default=defaults.evalperi, help="evaluation period during training")
+    # Transformer params
+    parser.add_argument("--d_model", type=int, default=defaults.d_model, help="depth of model")
+    parser.add_argument("--nhead", type=int, default=defaults.nhead, help="num. of heads")
+    parser.add_argument("--num_layer", type=int, default=defaults.num_layer, help="num. of layers")
+    parser.add_argument("--dim_ff", type=int, default=defaults.dim_ff, help="dim. of FNN")
+    parser.add_argument("--max_len", type=int, default=defaults.max_len, help="max length of input sequence")
+    parser.add_argument("--dropout", type=float, default=defaults.dropout, help="dropout")
+    parser.add_argument("--recursive", action="store_true")
+    parser.add_argument("--attentiononly", action="store_true")
+    parser.add_argument("--noembedded", action="store_true")
+    # others
+    parser.add_argument("--n_eval", type=int, default=defaults.n_eval, help="eval num")
+    parser.add_argument("--output_dir", type=str, default=defaults.output_dir)
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--small", action="store_true")
+    parser.add_argument("--force_train", action="store_true")
+    parser.add_argument("--simple", action="store_true")
+    parser.add_argument("--use_amp", action="store_true")
+    # old
+    parser.add_argument("--use_s2d", action="store_true")
+    return parser
+
+
+def parse_args() -> PipelineArgs:
+    parser = build_parser()
+    ns = parser.parse_args()
+    return PipelineArgs(**vars(ns))
 
 # ------------------------------
 # Dataset helpers
@@ -357,8 +450,8 @@ def pipeline(args,
                 print(msg)
                 print(msg,file=fpw)
                 print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions")
-                for i  in range(args.n_eval):
-                    eval_show(args,params_tr,model,i,vocab_size,pname,k,i)
+                for i in range(args.n_eval):
+                    eval_show(args,params_tr,model,i,vocab_size,pname,k)
                 print("Fin.")
 
 def run_all(args,out_root):
@@ -385,45 +478,7 @@ def run_small(args,out_root,kinds=["simple","add","ring","meta"],
 # Main
 # ------------------------------
 if __name__=="__main__":
-    parser = argparse.ArgumentParser(description="S→eval→Dyck→K-foldでTransformer学習・可視化まで一括実行")
-    # S-exp params
-    parser.add_argument("--n_sexps", type=int, default=30000, help="生成するS式サンプル数")
-    parser.add_argument("--n_free_vars", type=int, default=4, help="各S式の自由変数の数")
-    parser.add_argument("--max_depth", type=int, default=4, help="各S式の最大深さ")
-    parser.add_argument("--sexpfilename", type=str, default="",help="use sexp from file") #S式をファイルから読み込む
-    parser.add_argument("--max_data_num", type=int, default=0)
-    parser.add_argument("--want_kind", type=str, default="int")
-    # leaning params
-    parser.add_argument("--kfold", type=int, default=5, help="交差検証のfold数")
-    parser.add_argument("--model", type=str, choices=["fixed", "recursive","attentiononly","outQK"], default="fixed")
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", type=str, default="cuda",help="device(cpu/cuda)")
-    parser.add_argument("--evalperi", type=int, default=100,help="evaluation period during training")
-    # Transformer params
-    parser.add_argument("--d_model",   type=int, default=256, help="depth of model")
-    parser.add_argument("--nhead",     type=int, default=8,   help="num. of heads")
-    parser.add_argument("--num_layer", type=int, default=4,   help="num. of layers")
-    parser.add_argument("--dim_ff",    type=int, default=256, help="dim. of FNN")
-    parser.add_argument("--max_len",   type=int, default=4096,help="max length of input sequence")
-    parser.add_argument("--dropout",   type=float, default=0.2,help="dropout")
-    parser.add_argument("--recursive",   action="store_true")   
-    parser.add_argument("--attentiononly",   action="store_true")   
-    parser.add_argument("--noembedded",   action="store_true")   
-    # others
-    parser.add_argument("--n_eval",    type=int, default=2, help="eval num")
-    parser.add_argument("--output_dir", type=str, default="./runs/exp")
-    parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--all", action="store_true")
-    parser.add_argument("--small", action="store_true")
-    parser.add_argument("--force_train", action="store_true")
-    parser.add_argument("--simple", action="store_true")
-    parser.add_argument("--use_amp", action="store_true") 
-    # old
-    parser.add_argument("--use_s2d", action="store_true")
-
-    args = parser.parse_args()
+    args = parse_args()
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     args.use_amp=args.use_amp and (args.device=="cuda")       
