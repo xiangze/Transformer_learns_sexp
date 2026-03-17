@@ -65,6 +65,7 @@ class PipelineArgs:
     force_train: bool = False  # retrain even if checkpoint exists
     simple: bool = False  # run only simple kind grid
     use_amp: bool = False  # mixed precision training
+    test_attention:bool=False
     # old
     use_s2d: bool = False  # legacy flag
 
@@ -111,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force_train", action="store_true")
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--use_amp", action="store_true")
+    parser.add_argument("--test_attention", action="store_true")
     # old
     parser.add_argument("--use_s2d", action="store_true")
     return parser
@@ -208,7 +210,7 @@ def train_one_fold(model,
     return model,train_loss,best_val_loss,last_val_loss
 
 simplekinds=["simple","meta","arith","add","meta","ring"]
-def genSexps(args,dump=True):
+def genSexps(args,out_root,dump=True):
     t0 = time.time()
     if(args.sexpfilename!=""):
         with open(args.sexpfilename,"r",encoding="utf-8") as f:
@@ -369,7 +371,7 @@ def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path:
 def pipeline1(args,kind="any"):
     args.n_sexps=1
     args.want_kind=kind
-    S,ss,steps=genSexps(args,dump=False)
+    S,ss,steps=genSexps(args,out_root,dump=False)
     pairs,vocab_size,seq_len=convert(S,ss,args)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
     mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる
@@ -388,7 +390,7 @@ def eval_show(args,params_tr,model,i,vocab_size,pname,k):
         print("fail to make QKV")
         pass
 
-def makesuf(params_tr,params_sexp):
+def makesuf(args,params_tr,params_sexp):
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
     pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
     for k,v in {"sexpfilename__":"","want_":"","num_free_vars":"var","num_layer":"l","d_model":"d_",
@@ -410,13 +412,13 @@ def pipeline(args,
     if(args.debug):
         args.n_sexps=10
     print("[1/5] Generating S-expressions...")
-    S,ss,steps=genSexps(args)
+    S,ss,steps=genSexps(args,out_root)
     print("[3/5] Converting to Dyck language...")
     pairs,vocab_size,params_tr["seq_len"]=convert(S,ss,args)
     params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
 
     print("[4/5] K-fold training/evaluation...")
-    pname=makesuf(params_tr,params_sexp)
+    pname=makesuf(args,params_tr,params_sexp)
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
@@ -473,6 +475,41 @@ def run_small(args,out_root,kinds=["simple","add","ring","meta"],
         params_tr: dict ={"d_model":d_model, "nhead":head, "num_layer" :layer, "dim_ff": args.dim_ff, "max_len": args.max_len,"model":model}
         pipeline(args, params_sexp,params_tr,out_root=out_root)
 
+def test_attention(args):
+    # S-exp params
+    args.n_sexps = 5000  # 生成するS式サンプル数
+    args.n_free_vars = 1  # 各S式の自由変数の数
+    args.max_depth = 2  # 各S式の最大深さ
+    # Transformer params
+    args.d_model = 256  # depth of model
+    args.nhead = 4  # num. of heads
+    #args.dim_ff = 128  # dim. of FNN
+
+    args.attentiononly=True
+    for l in  [1,2,3]:
+        args.num_layer = l
+        for recursive in  [True ,False]:
+            args.recursive=recursive
+            for noembedded in [False,True]:
+                args.noembedded=noembedded
+                for use_amp in [True ,False]:
+                    args.use_amp=use_amp
+                    pipeline_arg(args)
+                    print("success",args)
+
+def  pipeline_arg(args):
+    out_root = Path(args.output_dir)
+    out_root.mkdir(parents=True, exist_ok=True)
+    args.use_amp=args.use_amp and (args.device=="cuda")       
+
+    params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename,"want_kind":args.want_kind}
+    if(args.sexpfilename!=""):
+        params_sexp["sexpfilename"]=args.sexpfilename
+    params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
+                        "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
+                        "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
+                        "batch_size":args.batch_size,"noembedded":args.noembedded}
+    pipeline(args, params_sexp,params_tr,out_root=out_root)
 
 # ------------------------------
 # Main
@@ -488,12 +525,7 @@ if __name__=="__main__":
         run_small(args,out_root,["simple"])
     elif(args.small):
         run_small(args,out_root)
+    elif(args.test_attention):
+        test_attention(args)
     else:
-        params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename,"want_kind":args.want_kind}
-        if(args.sexpfilename!=""):
-            params_sexp["sexpfilename"]=args.sexpfilename
-        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
-                          "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
-                          "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
-                          "batch_size":args.batch_size,"noembedded":args.noembedded}
-        pipeline(args, params_sexp,params_tr,out_root=out_root)
+        pipeline_arg(args)
