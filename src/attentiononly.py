@@ -98,11 +98,13 @@ class AttentionOnlyNet(nn.Module):
     ) -> torch.Tensor:
         
         if(self.embedding):
+            ids=ids.to(torch.int)
             ids=self.tok(ids)
         else:
             ids=ids.to(torch.float32)
             attn_mask=attn_mask.to(torch.bool)
-
+        #attn_mask バイナリマスクの場合、True は対応する位置がアテンションの対象にならないことを示します。
+        #key_padding_mask バイナリマスクの場合、True を指定すると、対応するキー値はアテンション処理において無視されます。
         if key_padding_mask is None:# 2D: (batch, seq_len)
             if src_ids is not None:
                 key_padding_mask = (src_ids == self.pad_id)  
