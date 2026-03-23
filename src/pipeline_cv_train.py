@@ -66,6 +66,7 @@ class PipelineArgs:
     simple: bool = False  # run only simple kind grid
     use_amp: bool = False  # mixed precision training
     test_attention:bool=False
+    show_msg:bool=True
     # old
     use_s2d: bool = False  # legacy flag
 
@@ -113,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--simple", action="store_true")
     parser.add_argument("--use_amp", action="store_true")
     parser.add_argument("--test_attention", action="store_true")
+    parser.add_argument("--show_msg", action="store_false")
     # old
     parser.add_argument("--use_s2d", action="store_true")
     return parser
@@ -185,23 +187,26 @@ def make_model(params,model_kind,vocab_size,debug):
             raise ValueError("model_kind must be 'fixed' or 'recursive'.")
     return model
 
-def train_one_fold(model,
+def train_one_fold(args,
+                   model,
                    ds_train, ds_val,
                    epochs: int, batch_size: int,
-                   device:str="cuda", use_amp=True,evalperi=100,debug=False
+                   device:str="cuda", use_amp=True,evalperi=100,debug=False,
+                   num_workers=1
                    ) -> Optional[Any]:
-    print(f"Device: {device} amp:{use_amp}")
+    if(args.show_msg):
+        print(f"Device: {device} amp:{use_amp}")
     pin = (device == "cuda")
-    ds_train=[tensor(t) for t in ds_train]
-    ds_val  =[tensor(t) for t in ds_val] 
-    for d in ds_val:
-        print(d.shape,",",end="")
-    assert(ds_train[0].shape[1]==ds_train[1].shape[1])
-    assert(ds_val[0].shape[1]==ds_val[1].shape[1])
-    
-    num_workers=1
-    train_loader = DataLoader(TensorDataset( *ds_train), batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
-    val_loader   = DataLoader(TensorDataset( *ds_val), batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
+    for d in [ds_train,ds_val]:
+        print(d[0].shape)
+
+    for d in [ds_train,ds_val]:
+        assert(d[0].shape==d[1].shape) 
+        for i in range(len(d)):
+            assert(torch.any(d[i][2:4,:]!=0)), print(d[i])
+
+    train_loader = DataLoader(TensorDataset(ds_train), batch_size=batch_size, shuffle=True,  num_workers=num_workers, pin_memory=pin)
+    val_loader   = DataLoader(TensorDataset(ds_val), batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin)
     evalperi=max(1,epochs//10)
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
@@ -217,11 +222,13 @@ def genSexps(args,out_root,dump=True):
             ls=[ line.strip() for line in f.readlines()]
         ls=[k.strip().split(",") for k in ls]
         S, ss, steps = map(list, zip(*ls))
-        print(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s")
+        if args.show_msg:
+            print(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s")
         if(args.max_data_num>0):
             S=S[:min(args.max_data_num,len(S))]
     else:
-        print("[2/5] Evaluating Higher Order S-expressions...")
+        if args.show_msg:
+            print("[2/5] Evaluating Higher Order S-expressions...")
         if(args.want_kind in simplekinds):
             SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars,debug=args.debug)
         else:
@@ -238,9 +245,10 @@ def genSexps(args,out_root,dump=True):
             f.write("index,steps\n")
             for i,s in enumerate(S):
                f.write(f"org exp len {len(s)},reduced len {len(ss[i])}, {steps[i]}steps\n")
-        print(f"step counts saved to: {step_log_path}")
-        print(f"max len S",max([len(i) for i in S ]))
-        print(f"max len ss",max([len(i) for i in ss ]))
+        if args.show_msg:
+            print(f"step counts saved to: {step_log_path}")
+            print(f"max len S",max([len(i) for i in S ]))
+            print(f"max len ss",max([len(i) for i in ss ]))
         return S,ss,steps
     else:
         return S,ss,None
@@ -248,8 +256,9 @@ def genSexps(args,out_root,dump=True):
 def toint(S):
     return [[int(i) for i in s] for s in S]
 
-def loadconvertedfile(convfilename):
-    print("try loading ",convfilename)
+def loadconvertedfile(args,convfilename):
+    if args.show_msg:
+        print("try loading ",convfilename)
     S=[];ss=[];masks=[];target_masks=[]
     with open(convfilename) as fp:
         for l in fp.readlines():
@@ -257,7 +266,8 @@ def loadconvertedfile(convfilename):
             for i,s in enumerate([S,ss,masks,target_masks]):
                 s.append(n[i].replace("]","").replace("[","").replace("(","").split(", "))
         S,ss,masks,target_masks=[[toint(s) for s in n] for n in [S,ss,masks,target_masks]]
-        print(f"read {len(S)} pairs from {convfilename}")
+        if args.show_msg:
+            print(f"read {len(S)} pairs from {convfilename}")
     return S,ss,masks,target_masks
 
 """
@@ -341,23 +351,31 @@ def convert(
     else:
         src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path )
         
-    print(f"src_tokens,{np.array(src_tokens).shape}, tgt_tokens {np.array(tgt_tokens).shape},\
-           src_masks {np.array(src_masks).shape}, tgt_masks {np.array(tgt_masks).shape}")
+    if args.show_msg:
+        print(f"src_tokens,{np.array(src_tokens).shape}, tgt_tokens {np.array(tgt_tokens).shape},\
+            src_masks {np.array(src_masks).shape}, tgt_masks {np.array(tgt_masks).shape}")
     
     # --- vocabulary size ---
     all_token_maxes = [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]
     vocab_size = max(all_token_maxes) + 1
     # --- ペア化 & numpy 変換 ---
-    pairs = [ [np.array(s), np.array(t), np.array(sm,dtype=float), np.array(tm,dtype=float)]
-                for s, t, sm, tm in zip(src_tokens, tgt_tokens, src_masks, tgt_masks) ]
-    # --- ログ ---
+    assert(np.any(src_masks!=0))
+    assert(np.any(tgt_masks!=0))
+    pairs = np.array([ [np.array(s), np.array(t), np.array(sm,dtype=float), np.array(tm,dtype=float)]
+                for s, t, sm, tm in zip(src_tokens, tgt_tokens, src_masks, tgt_masks)])
+
     elapsed = time.time() - t0
     seq_len = len(src_tokens[0]) if src_tokens else 0
     if(args.noembedded):
         pairs[0][2]=pairs[0][2].repeat(len(pairs[0][2]))
         pairs[0][3]=pairs[0][3].repeat(len(pairs[0][3]))
-    
-    print(f"[convert] {len(pairs)} pairs, seq_len={seq_len}, vocab_size={vocab_size}, src_mask={pairs[0][2].shape}, attn_mask={pairs[0][3].shape} {elapsed:.2f}s")
+
+    for i in range(len(pairs)):
+        assert(np.any(pairs[i,2:4,:]>0)),print(pairs[i])
+    #attn_mask バイナリマスクの場合、True は対応する位置がアテンションの対象にならないことを示します。
+    #key_padding_mask バイナリマスクの場合、True を指定すると、対応するキー値はアテンション処理において無視されます。
+    if args.show_msg:
+        print(f"[convert] {pairs.shape} pairs, seq_len={seq_len}, vocab_size={vocab_size}, src_mask={pairs[0][2].shape}, attn_mask={pairs[0][3].shape} {elapsed:.2f}s")
     return pairs, vocab_size,seq_len
 
 def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
@@ -368,18 +386,22 @@ def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path:
     save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
     return src_tokens, tgt_tokens, src_masks, tgt_masks
 
-def pipeline1(args,kind="any"):
+def pipeline1(args,out_root,kind="any"):
+    n_sexps=args.n_sexps
     args.n_sexps=1
     args.want_kind=kind
     S,ss,steps=genSexps(args,out_root,dump=False)
     pairs,vocab_size,seq_len=convert(S,ss,args)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
-    mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる
+    mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる assert(target_mask!=0).any(), f"target_mask, {target_mask}"
+    assert(torch.any(mask!=0))
+    args.n_sexps=n_sexps
     return ds[0].to(args.device),mask,vocab_size
 
-def eval_show(args,params_tr,model,i,vocab_size,pname,k):
-    print(f"--- sample input {i}/{args.n_eval}")
-    xin,mask,_vocab_size=pipeline1(args,args.want_kind)
+def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k):
+    if args.show_msg:
+        print(f"--- sample input {i}/{args.n_eval}")
+    xin,mask,_vocab_size=pipeline1(args,out_root,args.want_kind)
     xout=model(xin,mask)
     assert(not torch.isnan(xout).any()),f"xout{xout}"
     vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
@@ -404,31 +426,34 @@ def makesuf(args,params_tr,params_sexp):
         pname+="_noemb"
     return pname
 
-
 def pipeline(args,
              params_sexp:dict,
              params_tr: dict ={"d_model":256, "nhead":8, "num_layer" : 4, "dim_ff": 1024, "max_len": 4096,"dropout":0.2},
              out_root="result", seed: int =-1):
     if(args.debug):
         args.n_sexps=10
-    print("[1/5] Generating S-expressions...")
+    if args.show_msg:
+        print("[1/5] Generating S-expressions...")
     S,ss,steps=genSexps(args,out_root)
-    print("[3/5] Converting to Dyck language...")
+    if args.show_msg:
+        print("[3/5] Converting to Dyck language...")
     pairs,vocab_size,params_tr["seq_len"]=convert(S,ss,args)
-    params_tr["max_len"]=min(args.max_len,max( [len(s[0]) for s in pairs]))
-
-    print("[4/5] K-fold training/evaluation...")
+    params_tr["max_len"]=min(args.max_len,max([len(s[0]) for s in pairs]))
+    if args.show_msg:
+        print("[4/5] K-fold training/evaluation...")
     pname=makesuf(args,params_tr,params_sexp)
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
             os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
             model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
-            train_pairs = [pairs[i] for i in tr_idx]
-            val_pairs   = [pairs[i] for i in va_idx]
-
-            ds_train = [np.array(list(t)) for t in zip(*train_pairs)]
-            ds_val   = [np.array(list(t)) for t in zip(*val_pairs)]
+            assert(np.any(pairs!=0))
+            for i in range(len(pairs)):
+                assert(np.any(pairs[i,2:4,:]>0)),print(pairs[i])
+            ds_train = tensor([pairs[i] for i in tr_idx])
+            ds_val   = tensor([pairs[i] for i in va_idx])
+#            ds_train = [np.array(list(t)) for t in zip(*[pairs[i] for i in tr_idx])]
+#            ds_val   = [np.array(list(t)) for t in zip(*[pairs[i] for i in va_idx])]            
             if(len(ds_train)>0 and len(ds_val)>0):
                 modelname=f"model/{pname}_{k}.pth"
                 if(os.path.isfile(modelname) and not args.force_train):
@@ -444,16 +469,17 @@ def pipeline(args,
                         model=model.to(args.device)
                     train_loss,best_val_loss,last_val_loss=1,1,1
                 else:
-                    model,train_loss,best_val_loss,last_val_loss=train_one_fold(model, ds_train, ds_val,
+                    model,train_loss,best_val_loss,last_val_loss=train_one_fold(args,model, ds_train, ds_val,
                                                             epochs=args.epochs, batch_size=args.batch_size,
                                                             device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug)
                     save(model.state_dict(), modelname)
-                msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
-                print(msg)
-                print(msg,file=fpw)
-                print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions")
+                if args.show_msg:
+                    msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
+                    print(msg)
+                    print(msg,file=fpw)
+                    print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions")
                 for i in range(args.n_eval):
-                    eval_show(args,params_tr,model,i,vocab_size,pname,k)
+                    eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k)
                 print("Fin.")
 
 def run_all(args,out_root):
@@ -482,20 +508,20 @@ def test_attention(args):
     args.max_depth = 2  # 各S式の最大深さ
     # Transformer params
     args.d_model = 256  # depth of model
-    args.nhead = 4  # num. of heads
-    #args.dim_ff = 128  # dim. of FNN
-
+    args.nhead = 4  # num. of heads 
+    args.force_train=True
+    args.use_amp=False
+    args.show_msg=False
     args.attentiononly=True
-    for l in  [1,2,3]:
-        args.num_layer = l
+    for noembedded in [False,True]:
+        args.noembedded=noembedded
         for recursive in  [True ,False]:
             args.recursive=recursive
-            for noembedded in [False,True]:
-                args.noembedded=noembedded
-                for use_amp in [True ,False]:
-                    args.use_amp=use_amp
-                    pipeline_arg(args)
-                    print("success",args)
+            for l in  [1,2,3]:
+                args.num_layer = l
+                print("start params",args)
+                pipeline_arg(args)
+                print("success",args)
 
 def  pipeline_arg(args):
     out_root = Path(args.output_dir)
@@ -509,6 +535,8 @@ def  pipeline_arg(args):
                         "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
                         "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
                         "batch_size":args.batch_size,"noembedded":args.noembedded}
+    if(args.debug):
+        print("start ",args)
     pipeline(args, params_sexp,params_tr,out_root=out_root)
 
 # ------------------------------
