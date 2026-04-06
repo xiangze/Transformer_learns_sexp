@@ -118,8 +118,12 @@ class AttentionOnlyNet(nn.Module):
                     valid = (~key_padding_mask)
                 else:
                     a=ids.shape[0]
-                    #key_padding_mask=torch.tensor(attn_mask[0,:].clone().detach().repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool)
-                    key_padding_mask=torch.tensor(attn_mask[0,:].repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool).clone().detach()
+                    try:
+                        key_padding_mask=torch.tensor(attn_mask[0,:].repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool).clone().detach()
+                    except Exception  as e:
+                        print(f"{e}")
+                        print(f"attn_mask[0,:].repeat(a)={attn_mask[0,:].repeat(a).shape},[a,seq_len]=[{a},{self.seq_len}]")
+                        exit()
                     #key_padding_mask=~key_padding_mask  #temporal
                     key_padding_mask[:, 0] = False
                     #key_padding_mask = (attn_mask == 0) # True=padding

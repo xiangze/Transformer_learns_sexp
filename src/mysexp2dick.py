@@ -129,6 +129,7 @@ def sexpss_to_tokens(
     tgt_sexps: List[str],
     *,
     show: bool = False,
+    maxlen=0,
 ) -> Tuple[List[List[List[int]]], Dict[str, int], List[List[List[int]]]]:
     """S式文字列のペアをトークン列に変換し、パディング+マスクを付与する。
     Returns:
@@ -144,7 +145,9 @@ def sexpss_to_tokens(
     tokenss = [
             [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in sexps]
                 for sexps in (src_sexps, tgt_sexps)  ]
-    maxlen = max(len(seq) for seqs in tokenss for seq in seqs)
+    if(maxlen==0):
+        maxlen = max(len(seq) for seqs in tokenss for seq in seqs)
+    print(f"maxlen={maxlen}")
     # === 修正: マスクはトークン化 *後* の長さで生成する ===
     # 旧コードは元の文字列 (src_sexps / tgt_sexps) の len() を使っていたため、
     # 文字列長とトークン列長が一致しないケースでマスクがずれていた。

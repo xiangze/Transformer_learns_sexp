@@ -28,6 +28,20 @@ import randhof_with_weight as hof
 import numpy as np
 import attentiononly as atn
 import itertools
+import copy
+
+def mprint(msg,on):
+    if(on):
+        print(msg)
+
+def dprint(s,fp,on=True):
+    if(on):
+        print(s)
+        if(type(fp)==list):
+            for f in fp:
+                print(s,file=f)
+        else:   
+            print(s,file=fp)
 
 @dataclass
 class PipelineArgs:
@@ -177,11 +191,15 @@ def make_model(params,model_kind,vocab_size,debug):
         else:    
             model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding)
     else:
+        
         if model_kind == "recursive":
+            params["recursive"]=True
             model=fixed.TransformerRegressor(params,debug=debug,recursive=True)
         elif model_kind == "fixed":
+            params["recursive"]=False
             model=fixed.TransformerRegressor(params,debug=debug)
         elif model_kind == "outQK":
+            params["recursive"]=False
             model=fixed.TransformerRegressor(params,debug=debug,outQK=True)
         else:
             raise ValueError("model_kind must be 'fixed' or 'recursive'.")
@@ -194,8 +212,7 @@ def train_one_fold(args,
                    device:str="cuda", use_amp=True,evalperi=100,debug=False,
                    num_workers=1
                    ) -> Optional[Any]:
-    if(args.show_msg):
-        print(f"Device: {device} amp:{use_amp}")
+    mprint(f"Device: {device} amp:{use_amp}",args.show_msg)
     pin = (device == "cuda")
     for d in [ds_train,ds_val]:
         print(d[0].shape)
@@ -222,13 +239,11 @@ def genSexps(args,out_root,dump=True):
             ls=[ line.strip() for line in f.readlines()]
         ls=[k.strip().split(",") for k in ls]
         S, ss, steps = map(list, zip(*ls))
-        if args.show_msg:
-            print(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s")
+        mprint(f"[2/5] loaded: {len(S)} samples in {time.time()-t0:.2f}s",args.show_msg)
         if(args.max_data_num>0):
             S=S[:min(args.max_data_num,len(S))]
     else:
-        if args.show_msg:
-            print("[2/5] Evaluating Higher Order S-expressions...")
+        mprint("[2/5] Evaluating Higher Order S-expressions...",args.show_msg)
         if(args.want_kind in simplekinds):
             SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars,debug=args.debug)
         else:
@@ -303,11 +318,11 @@ def save_converted(
         json.dump(data, f)
     print(f"[cache] saved {len(src_tokens)} pairs → {path}")
 
-def load_converted( path: str, ) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+def load_converted( path: str,args ) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     """キャッシュ JSON を読み込み、4 つのリストを返す。
     ファイルが存在しない・壊れている場合は例外を送出する。
     """
-    print(f"[cache] loading {path}")
+    mprint(f"[cache] loading {path}",args.show_msg)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     required_keys = {"src_tokens", "tgt_tokens", "src_masks", "tgt_masks"}
@@ -317,11 +332,11 @@ def load_converted( path: str, ) -> Tuple[List[List[int]], List[List[int]], List
     tgt_tokens = [list(map(int, row)) for row in data["tgt_tokens"]]
     src_masks  = [list(map(int, row)) for row in data["src_masks"]]
     tgt_masks  = [list(map(int, row)) for row in data["tgt_masks"]]
-    print(f"[cache] read {len(src_tokens)} pairs from {path}")
+    mprint(f"[cache] read {len(src_tokens)} pairs from {path}",args.show_msg)
     return src_tokens, tgt_tokens, src_masks, tgt_masks
 
 def convert(
-    src_sexps: List[str],  tgt_sexps: List[str],  args,
+    src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cache=True,
 ) -> Tuple[List[List[np.ndarray]], int]:
     """S式ペアをモデル入力用のトークン行列ペアに変換する。
 
@@ -338,26 +353,26 @@ def convert(
         pairs:      各要素が [src_tokens, tgt_tokens, src_mask, tgt_mask] の
                     np.ndarray リスト
         vocab_size: 語彙サイズ（最大トークン ID + 1）
+        max_seq_len:   max length of src_token
     """
     t0 = time.time()
     cache_path = _build_cache_path(args)
     # --- キャッシュ読み込み or 新規変換 ---
-    if os.path.isfile(cache_path):
+    if os.path.isfile(cache_path) and use_cache:
         try:
-            src_tokens, tgt_tokens, src_masks, tgt_masks = load_converted(cache_path)
+            src_tokens, tgt_tokens, src_masks, tgt_masks = load_converted(cache_path,args)
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             print(f"[cache] 読み込み失敗 ({e})。再変換します。")
-            src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path )
+            src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path,maxlen )
     else:
-        src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path )
+        src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path,maxlen )
         
     if args.show_msg:
         print(f"src_tokens,{np.array(src_tokens).shape}, tgt_tokens {np.array(tgt_tokens).shape},\
             src_masks {np.array(src_masks).shape}, tgt_masks {np.array(tgt_masks).shape}")
     
     # --- vocabulary size ---
-    all_token_maxes = [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]
-    vocab_size = max(all_token_maxes) + 1
+    vocab_size = max( [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]) + 1
     # --- ペア化 & numpy 変換 ---
     assert(np.any(src_masks!=0))
     assert(np.any(tgt_masks!=0))
@@ -365,7 +380,10 @@ def convert(
                 for s, t, sm, tm in zip(src_tokens, tgt_tokens, src_masks, tgt_masks)])
 
     elapsed = time.time() - t0
-    seq_len = len(src_tokens[0]) if src_tokens else 0
+    max_seq_len,min_seq_len= [f([len(tokens) for tokens in src_tokens]) for f in [max,min]]
+    if(maxlen>0):
+        assert(maxlen>=max_seq_len),f"required seq_len<={maxlen} actual[{min_seq_len},{max_seq_len}]"
+
     if(args.noembedded):
         pairs[0][2]=pairs[0][2].repeat(len(pairs[0][2]))
         pairs[0][3]=pairs[0][3].repeat(len(pairs[0][3]))
@@ -375,35 +393,37 @@ def convert(
     #attn_mask バイナリマスクの場合、True は対応する位置がアテンションの対象にならないことを示します。
     #key_padding_mask バイナリマスクの場合、True を指定すると、対応するキー値はアテンション処理において無視されます。
     if args.show_msg:
-        print(f"[convert] {pairs.shape} pairs, seq_len={seq_len}, vocab_size={vocab_size}, src_mask={pairs[0][2].shape}, attn_mask={pairs[0][3].shape} {elapsed:.2f}s")
-    return pairs, vocab_size,seq_len
+        print(f"[convert] {pairs.shape} pairs, max_seq_len={max_seq_len}, min_seq_len={min_seq_len}, vocab_size={vocab_size}, src_mask={pairs[0][2].shape}, attn_mask={pairs[0][3].shape} {elapsed:.2f}s")
+    return pairs, vocab_size,max_seq_len
 
-def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,maxlen:int=0) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     """トークン化を実行し、結果をキャッシュに保存して返す。"""
-    tokenss, _worddict, maskss = mys2d.sexpss_to_tokens(src_sexps, tgt_sexps, show=False)
+    tokenss, _worddict, maskss = mys2d.sexpss_to_tokens(src_sexps, tgt_sexps, show=False,maxlen=maxlen)
     src_tokens, tgt_tokens = tokenss
     src_masks, tgt_masks = maskss
     save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
     return src_tokens, tgt_tokens, src_masks, tgt_masks
 
-def pipeline1(args,out_root,kind="any"):
-    n_sexps=args.n_sexps
+def pipeline1(args,out_root,max_len,kind="any"):
+    oargs=copy.deepcopy(args)
     args.n_sexps=1
     args.want_kind=kind
     S,ss,steps=genSexps(args,out_root,dump=False)
-    pairs,vocab_size,seq_len=convert(S,ss,args)
+    pairs,vocab_size,_=convert(S,ss,args,max_len,use_cache=False)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
     mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる assert(target_mask!=0).any(), f"target_mask, {target_mask}"
     assert(torch.any(mask!=0))
-    args.n_sexps=n_sexps
+    args=oargs
     return ds[0].to(args.device),mask,vocab_size
 
 def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k):
+    max_len=max(params_tr["seq_len"],params_tr["max_len"])
     if args.show_msg:
-        print(f"--- sample input {i}/{args.n_eval}")
-    xin,mask,_vocab_size=pipeline1(args,out_root,args.want_kind)
+        print(f"--- eval sample input {i}th/{args.n_eval}")
+    xin,mask,_vocab_size=pipeline1(args,out_root,max_len,args.want_kind)
     xout=model(xin,mask)
     assert(not torch.isnan(xout).any()),f"xout{xout}"
+ 
     vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
     try:
         #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
@@ -432,28 +452,29 @@ def pipeline(args,
              out_root="result", seed: int =-1):
     if(args.debug):
         args.n_sexps=10
-    if args.show_msg:
-        print("[1/5] Generating S-expressions...")
+
+    mprint("[1/5] Generating S-expressions...",args.show_msg)
     S,ss,steps=genSexps(args,out_root)
-    if args.show_msg:
-        print("[3/5] Converting to Dyck language...")
+
+    mprint("[3/5] Converting to Dyck language...",args.show_msg)
     pairs,vocab_size,params_tr["seq_len"]=convert(S,ss,args)
     params_tr["max_len"]=min(args.max_len,max([len(s[0]) for s in pairs]))
-    if args.show_msg:
-        print("[4/5] K-fold training/evaluation...")
+
+    mprint("[4/5] K-fold training/evaluation...",args.show_msg)
     pname=makesuf(args,params_tr,params_sexp)
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
+
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
             os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
+
             model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
             assert(np.any(pairs!=0))
             for i in range(len(pairs)):
-                assert(np.any(pairs[i,2:4,:]>0)),print(pairs[i])
+                assert(np.any(pairs[i,2:4,:]>0)),print(pairs[i])#masks
+
             ds_train = tensor([pairs[i] for i in tr_idx])
             ds_val   = tensor([pairs[i] for i in va_idx])
-#            ds_train = [np.array(list(t)) for t in zip(*[pairs[i] for i in tr_idx])]
-#            ds_val   = [np.array(list(t)) for t in zip(*[pairs[i] for i in va_idx])]            
             if(len(ds_train)>0 and len(ds_val)>0):
                 modelname=f"model/{pname}_{k}.pth"
                 if(os.path.isfile(modelname) and not args.force_train):
@@ -473,11 +494,9 @@ def pipeline(args,
                                                             epochs=args.epochs, batch_size=args.batch_size,
                                                             device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug)
                     save(model.state_dict(), modelname)
-                if args.show_msg:
-                    msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
-                    print(msg)
-                    print(msg,file=fpw)
-                    print(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions")
+                msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
+                dprint(msg,fpw)
+                mprint(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions",args.show_msg)
                 for i in range(args.n_eval):
                     eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k)
                 print("Fin.")
