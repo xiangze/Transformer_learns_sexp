@@ -37,6 +37,7 @@ def recursive_embedded(args,force_train=False,show_msg=False):
     args.attentiononly=True
     args.noembedded=False
     args.recursive=True
+    args.n_eval=10
     date= datetime.datetime.now()
 
     with open("recursive_embedded.log","a") as logfp:

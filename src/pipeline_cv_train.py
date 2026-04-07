@@ -389,7 +389,7 @@ def convert(
         pairs[0][3]=pairs[0][3].repeat(len(pairs[0][3]))
 
     for i in range(len(pairs)):
-        assert(np.any(pairs[i,2:4,:]>0)),print(pairs[i])
+        assert(np.any(pairs[i,2:4,:]==0)),f"pairs[i]={pairs[i]}"
     #attn_mask バイナリマスクの場合、True は対応する位置がアテンションの対象にならないことを示します。
     #key_padding_mask バイナリマスクの場合、True を指定すると、対応するキー値はアテンション処理において無視されます。
     if args.show_msg:
@@ -471,7 +471,7 @@ def pipeline(args,
             model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
             assert(np.any(pairs!=0))
             for i in range(len(pairs)):
-                assert(np.any(pairs[i,2:4,:]>0)),print(pairs[i])#masks
+                assert(np.any(pairs[i,2:4,:]==0)),print(pairs[i])#masks
 
             ds_train = tensor([pairs[i] for i in tr_idx])
             ds_val   = tensor([pairs[i] for i in va_idx])
