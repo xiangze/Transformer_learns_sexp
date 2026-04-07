@@ -257,6 +257,7 @@ class TransformerRegressor(nn.Module):
         max_len= params["max_len"]
         self.pad_id=params["pad_id"]
         dropout=params["dropout"]
+        self.recursive=params["recursive"]
         self.vocab_size=vocab_size
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
@@ -264,6 +265,7 @@ class TransformerRegressor(nn.Module):
         if(self.recursive):
             enc_layer = at.SharedAttentionOnly(params,debug,weightvidible=True)
             num_layers=1
+        else:
             if(not outQK):
                 enc_layer = nn.TransformerEncoderLayer(
                     d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
