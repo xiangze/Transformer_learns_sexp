@@ -13,7 +13,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union,Dict
 import util
 import sexp2dick as s2d
 import mysexp2dick as mys2d
@@ -232,8 +232,13 @@ def train_one_fold(args,
     return model,train_loss,best_val_loss,last_val_loss
 
 simplekinds=["simple","meta","arith","add","meta","ring"]
-def genSexps(args,out_root,dump=True):
+def genSexps(args,out_root,num=0,dump=True,seed=None):
+    if(seed is None):
+        seed=args.seed
     t0 = time.time()
+    if(num==0):
+        num=args.n_sexps
+
     if(args.sexpfilename!=""):
         with open(args.sexpfilename,"r",encoding="utf-8") as f:
             ls=[ line.strip() for line in f.readlines()]
@@ -245,11 +250,11 @@ def genSexps(args,out_root,dump=True):
     else:
         mprint("[2/5] Evaluating Higher Order S-expressions...",args.show_msg)
         if(args.want_kind in simplekinds):
-            SS=hof.gen_and_eval_simple(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars,debug=args.debug)
+            SS=hof.gen_and_eval_simple(num,args.max_depth,seed=seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars,debug=args.debug)
         else:
-            SS=hof.gen_and_eval(args.n_sexps,args.max_depth,seed=args.seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
+            SS=hof.gen_and_eval(num,args.max_depth,seed=seed,want_kind=args.want_kind,n_free_vars=args.n_free_vars)
         if(dump):
-            with open(f"sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
+            with open(f"sexp/sexppair_n{num}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt", "w") as f:
                 for s in SS:
                     print(f"{s[0]},{s[1]},{s[2]}",file=f)            
         S, ss, steps = map(list, zip(*SS))
@@ -308,36 +313,53 @@ def save_converted(
 ) -> None:
     """変換済みデータを JSON で書き出す。"""
     data = {
-        "src_tokens": src_tokens,
-        "tgt_tokens": tgt_tokens,
+        "srcs": src_tokens,
+        "targets": tgt_tokens,
         "src_masks": src_masks,
-        "tgt_masks": tgt_masks,
+        "target_masks": tgt_masks,
     }
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f)
     print(f"[cache] saved {len(src_tokens)} pairs → {path}")
 
-def load_converted( path: str,args ) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+def load_converted( path: str,args ) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     """キャッシュ JSON を読み込み、4 つのリストを返す。
     ファイルが存在しない・壊れている場合は例外を送出する。
     """
     mprint(f"[cache] loading {path}",args.show_msg)
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    required_keys = {"src_tokens", "tgt_tokens", "src_masks", "tgt_masks"}
-    if not required_keys.issubset(data.keys()):
-        raise ValueError(f"キャッシュに必要なキーがありません: {required_keys - data.keys()}")
-    src_tokens = [list(map(int, row)) for row in data["src_tokens"]]
-    tgt_tokens = [list(map(int, row)) for row in data["tgt_tokens"]]
-    src_masks  = [list(map(int, row)) for row in data["src_masks"]]
-    tgt_masks  = [list(map(int, row)) for row in data["tgt_masks"]]
-    mprint(f"[cache] read {len(src_tokens)} pairs from {path}",args.show_msg)
-    return src_tokens, tgt_tokens, src_masks, tgt_masks
+    required_keys = ["srcs", "targets", "src_masks", "target_masks"]
+    if required_keys != list(data.keys()):
+        raise ValueError(f"キャッシュに必要なキーがありません: {required_keys}")
 
-def convert(
-    src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cache=True,
-) -> Tuple[List[List[np.ndarray]], int]:
+    q={k:[list(map(int, r)) for r in data[k]] for k in required_keys }
+
+    l=len(q["srcs"])
+    mprint(f"[cache] read {l} pairs from {path}",args.show_msg)
+    return q
+
+def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,maxlen:int=0) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+    """トークン化を実行し、結果をキャッシュに保存して返す。"""
+    tokenss, _worddict, maskss = mys2d.sexpss_to_tokens(src_sexps, tgt_sexps, show=False,maxlen=maxlen)
+    src_tokens, tgt_tokens = tokenss
+    src_masks, tgt_masks = maskss
+    save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
+    return {"srcs":src_tokens, "targets":tgt_tokens, "src_masks":src_masks, "target_masks":tgt_masks}
+
+def load_tokens(args,src_sexps, tgt_sexps,maxlen,path,use_cache=True) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+    if(os.path.isfile(path) and use_cache):
+        try:
+            tokens= load_converted(path,args)
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            print(f"[cache] 読み込み失敗 ({e})。再変換します。")
+            tokens = _tokenize_and_cache(src_sexps, tgt_sexps, path,maxlen )
+    else:
+        tokens = _tokenize_and_cache(src_sexps, tgt_sexps, path,maxlen )
+    return tokens
+
+def convert(src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cache=True) -> Tuple[List[List[np.ndarray]], int]:
     """S式ペアをモデル入力用のトークン行列ペアに変換する。
 
     1. キャッシュがあれば読み込む（JSON 形式）。
@@ -357,73 +379,51 @@ def convert(
     """
     t0 = time.time()
     cache_path = _build_cache_path(args)
-    # --- キャッシュ読み込み or 新規変換 ---
-    if os.path.isfile(cache_path) and use_cache:
-        try:
-            src_tokens, tgt_tokens, src_masks, tgt_masks = load_converted(cache_path,args)
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            print(f"[cache] 読み込み失敗 ({e})。再変換します。")
-            src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path,maxlen )
-    else:
-        src_tokens, tgt_tokens, src_masks, tgt_masks = _tokenize_and_cache(src_sexps, tgt_sexps, cache_path,maxlen )
-        
+    tokens=load_tokens(args,src_sexps, tgt_sexps,maxlen,cache_path,use_cache)
     if args.show_msg:
-        print(f"src_tokens,{np.array(src_tokens).shape}, tgt_tokens {np.array(tgt_tokens).shape},\
-            src_masks {np.array(src_masks).shape}, tgt_masks {np.array(tgt_masks).shape}")
-    
-    # --- vocabulary size ---
-    vocab_size = max( [max(seq) for seq in src_tokens] + [max(seq) for seq in tgt_tokens]) + 1
-    # --- ペア化 & numpy 変換 ---
-    assert(np.any(src_masks!=0))
-    assert(np.any(tgt_masks!=0))
-    pairs = np.array([ [np.array(s), np.array(t), np.array(sm,dtype=float), np.array(tm,dtype=float)]
-                for s, t, sm, tm in zip(src_tokens, tgt_tokens, src_masks, tgt_masks)])
+        for k ,v in tokens.items():
+            print(f"{k}, shap {np.array(v).shape}")
+
+    vocab_size = max( [max(seq) for seq in tokens["srcs"]] + [max(seq) for seq in tokens["targets"]]) + 1
+    #attn_mask True は対応する位置がアテンションの対象にならないことを示します。
+    #key_padding_mask True を指定すると、対応するキー値はアテンション処理において無視されます。
+    assert(np.any(tokens["src_masks"]!=0))
+    assert(np.any(tokens["target_masks"]!=0))
+    pairs = np.array(list(tokens.values()))
+
+    assert(pairs.ndim==3),f"pairs.ndim=={pairs.ndim},shape{pairs.shape}"
+    pairs=pairs.transpose((1,0,2))
 
     elapsed = time.time() - t0
-    max_seq_len,min_seq_len= [f([len(tokens) for tokens in src_tokens]) for f in [max,min]]
+    max_seq_len,min_seq_len= [f([len(tokens) for tokens in tokens["srcs"]]) for f in [max,min]]
     if(maxlen>0):
         assert(maxlen>=max_seq_len),f"required seq_len<={maxlen} actual[{min_seq_len},{max_seq_len}]"
 
     if(args.noembedded):
         pairs[0][2]=pairs[0][2].repeat(len(pairs[0][2]))
         pairs[0][3]=pairs[0][3].repeat(len(pairs[0][3]))
-
-    for i in range(len(pairs)):
-        assert(np.any(pairs[i,2:4,:]==0)),f"pairs[i]={pairs[i]}"
-    #attn_mask バイナリマスクの場合、True は対応する位置がアテンションの対象にならないことを示します。
-    #key_padding_mask バイナリマスクの場合、True を指定すると、対応するキー値はアテンション処理において無視されます。
+        for i in range(pairs.shape[0]):
+            assert(np.any(pairs[i,2:4,:]==0)),f"pairs[{i}]={pairs[i,2:4,:]},shape {pairs.shape}"
     if args.show_msg:
         print(f"[convert] {pairs.shape} pairs, max_seq_len={max_seq_len}, min_seq_len={min_seq_len}, vocab_size={vocab_size}, src_mask={pairs[0][2].shape}, attn_mask={pairs[0][3].shape} {elapsed:.2f}s")
     return pairs, vocab_size,max_seq_len
 
-def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,maxlen:int=0) -> Tuple[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
-    """トークン化を実行し、結果をキャッシュに保存して返す。"""
-    tokenss, _worddict, maskss = mys2d.sexpss_to_tokens(src_sexps, tgt_sexps, show=False,maxlen=maxlen)
-    src_tokens, tgt_tokens = tokenss
-    src_masks, tgt_masks = maskss
-    save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
-    return src_tokens, tgt_tokens, src_masks, tgt_masks
 
-def pipeline1(args,out_root,max_len,kind="any"):
-    oargs=copy.deepcopy(args)
-    args.n_sexps=1
-    args.want_kind=kind
-    S,ss,steps=genSexps(args,out_root,dump=False)
-    pairs,vocab_size,_=convert(S,ss,args,max_len,use_cache=False)
+def pipeline1(args,out_root,i,max_len):
+    S,ss,steps=genSexps(args,out_root,num=1,dump=False,seed=i)
+    pairs,_,_=convert(S,ss,args,max_len,use_cache=False)
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
-    mask=tensor(np.ones(ds[2].shape)).to(args.device)#mask=1のとき入力が有効になる assert(target_mask!=0).any(), f"target_mask, {target_mask}"
-    assert(torch.any(mask!=0))
-    args=oargs
-    return ds[0].to(args.device),mask,vocab_size
+    mask=tensor(np.ones(ds[2].shape)).to(args.device)
+    assert(torch.any(mask!=0))#mask=1のとき入力が有効になる
+    return ds[0].to(args.device),mask
 
 def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k):
     max_len=max(params_tr["seq_len"],params_tr["max_len"])
     if args.show_msg:
         print(f"--- eval sample input {i}th/{args.n_eval}")
-    xin,mask,_vocab_size=pipeline1(args,out_root,max_len,args.want_kind)
+    xin,mask=pipeline1(args,out_root,i,max_len)
     xout=model(xin,mask)
     assert(not torch.isnan(xout).any()),f"xout{xout}"
- 
     vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
     try:
         #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
@@ -436,15 +436,58 @@ def makesuf(args,params_tr,params_sexp):
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
     pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
     for k,v in {"sexpfilename__":"","want_":"","num_free_vars":"var","num_layer":"l","d_model":"d_",
-                "seq_len":"seq","max_depth":"depth","batch_size":"b"}.items():
+                "seq_len":"seq","max_depth":"depth","batch_size":"b","max_len":"maxlen","dim_ff":"ff","dropout":"dr","num_":"n_"}.items():
         pname=pname.replace(k,v)
+    for l in ["model_fixed","recursive_","attentiononly_","noembedded_","True","False"]:
+        pname=pname.replace(l,"")
     if(params_tr["recursive"]):
         pname+="_recur"
     if(params_tr["attentiononly"]):
         pname+="_ato"
     if(params_tr["noembedded"]):    
         pname+="_noemb"
+
+    pname=pname.replace(k,v)        
     return pname
+
+def train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fpw):
+    os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
+
+    model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
+    assert(np.any(pairs!=0))
+    for i in range(len(pairs)):
+        assert(np.any(pairs[i,2:4,:]==0)),print(pairs[i])#masks
+
+    ds_train = tensor([np.array(pairs[i]) for i in tr_idx])
+    ds_val   = tensor([np.array(pairs[i]) for i in va_idx])
+    if(len(ds_train)>0 and len(ds_val)>0):
+        modelname=f"model/{pname}_{k}.pth"
+        if(os.path.isfile(modelname) and not args.force_train):
+            try:
+                model.load_state_dict(torch.load(modelname)).to(args.device)
+            except:
+                ckpt = torch.load(modelname, map_location=args.device)
+                state_dict = ckpt if isinstance(ckpt, dict) and "tok.weight" in ckpt else ckpt["state_dict"]
+                vocab_size, d_model = state_dict["tok.weight"].shape
+                #print("ckpt vocab_size, d_model =", vocab_size, d_model)
+                model=make_model(params_tr,args.model,vocab_size,args.debug)
+                model.load_state_dict(state_dict, strict=True)
+                model=model.to(args.device)
+            train_loss,best_val_loss,last_val_loss=1,1,1
+        else:
+            model,train_loss,best_val_loss,last_val_loss=train_one_fold(args,model, ds_train, ds_val,
+                                                    epochs=args.epochs, batch_size=args.batch_size,
+                                                    device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug)
+            save(model.state_dict(), modelname)
+        msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
+        dprint(msg,fpw)
+        mprint(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions",args.show_msg)
+        for i in range(args.n_eval):
+            eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k)
+
+def train_eval_pairs_folds(args,pairs,pname,params_tr,out_root,folds,vocab_size,fp):
+    for k, (tr_idx, va_idx) in enumerate(folds):
+        train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fp)
 
 def pipeline(args,
              params_sexp:dict,
@@ -465,41 +508,8 @@ def pipeline(args,
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
 
     with open(f"log/{pname}.log","w") as fpw:
-        for k, (tr_idx, va_idx) in enumerate(folds):
-            os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
-
-            model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
-            assert(np.any(pairs!=0))
-            for i in range(len(pairs)):
-                assert(np.any(pairs[i,2:4,:]==0)),print(pairs[i])#masks
-
-            ds_train = tensor([pairs[i] for i in tr_idx])
-            ds_val   = tensor([pairs[i] for i in va_idx])
-            if(len(ds_train)>0 and len(ds_val)>0):
-                modelname=f"model/{pname}_{k}.pth"
-                if(os.path.isfile(modelname) and not args.force_train):
-                    try:
-                        model.load_state_dict(torch.load(modelname)).to(args.device)
-                    except:
-                        ckpt = torch.load(modelname, map_location=args.device)
-                        state_dict = ckpt if isinstance(ckpt, dict) and "tok.weight" in ckpt else ckpt["state_dict"]
-                        vocab_size, d_model = state_dict["tok.weight"].shape
-                        #print("ckpt vocab_size, d_model =", vocab_size, d_model)
-                        model=make_model(params_tr,args.model,vocab_size,args.debug)
-                        model.load_state_dict(state_dict, strict=True)
-                        model=model.to(args.device)
-                    train_loss,best_val_loss,last_val_loss=1,1,1
-                else:
-                    model,train_loss,best_val_loss,last_val_loss=train_one_fold(args,model, ds_train, ds_val,
-                                                            epochs=args.epochs, batch_size=args.batch_size,
-                                                            device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug)
-                    save(model.state_dict(), modelname)
-                msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
-                dprint(msg,fpw)
-                mprint(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions",args.show_msg)
-                for i in range(args.n_eval):
-                    eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k)
-                print("Fin.")
+        train_eval_pairs_folds(args,pairs,pname,params_tr,out_root,folds,vocab_size,fpw)
+    print("Fin.")
 
 def run_all(args,out_root):
     for n,depth,n_free_vars,head,layer,kind in itertools.product(

@@ -8,6 +8,8 @@ def dprint(s,fp):
     if(type(fp)==list):
         for f in fp:
             print(s,file=f)
+    elif(fp==None):
+        print(s)
     else:   
         print(s,file=fp)
 
@@ -29,7 +31,7 @@ def depth_test(args):
             args.num_layer = l
             exec(args,sys.stdout)
 
-def recursive_embedded(args,force_train=False,show_msg=False):
+def init(args,force_train=False,show_msg=True):
     args.n_sexps = 10000  # 生成するS式サンプル数
     args.force_train=force_train
     args.use_amp=False
@@ -38,8 +40,16 @@ def recursive_embedded(args,force_train=False,show_msg=False):
     args.noembedded=False
     args.recursive=True
     args.n_eval=10
-    date= datetime.datetime.now()
+    # Transformer params
+    args.d_model = 256  # depth of model
+    args.nhead = 4  # num. of heads 
+    args.max_depth = 4  # 各S式の最大深さ
+    args.n_free_vars = 1  # 各S式の自由変数の数
+    return args
 
+def recursive_embedded(args,force_train=False,show_msg=False):
+    args=init(args)
+    date= datetime.datetime.now()
     with open("recursive_embedded.log","a") as logfp:
         dprint(f"run {date}",logfp)        
         for kind,d_model,depth,n_free_vars,head,layer in itertools.product(
@@ -56,27 +66,28 @@ def recursive_embedded(args,force_train=False,show_msg=False):
 
 def attention_combination(args):
     # S-exp params
-    args.n_sexps = 5000  # 生成するS式サンプル数
-    args.n_free_vars = 1  # 各S式の自由変数の数
-
-    # Transformer params
-    args.d_model = 256  # depth of model
-    args.nhead = 4  # num. of heads 
-    args.max_depth = 4  # 各S式の最大深さ
-    args.force_train=True
-    args.use_amp=False
-    args.show_msg=False
-    args.attentiononly=True
+    args=init(args)
     with open("attentiononly_examples.log","a") as logfp:
         for noembedded in [False,True]:
             args.noembedded=noembedded
             for recursive in  [True ,False]:
                 args.recursive=recursive
-                for l in  [1,2,3]:
+                for l in  [2,3]:
                     args.num_layer = l
                     exec(args,logfp)
+
+def layers(args,show_msg=True):
+    args=init(args)
+    for l in range(1,5):
+        args.num_layer = l
+        exec(args,None)    
 
 if __name__ == "__main__":
     args = p.parse_args()
     #attention_combination(args)
-    recursive_embedded(args,force_train=False,show_msg=True)
+    #recursive_embedded(args,force_train=False,show_msg=True)
+    layers(args,True)
+    # for kind,d_model,depth,n_free_vars,head,layer in itertools.product(
+    #     ["simple","add","ring","meta"],[128,256,512],
+    #     [2,3,4], [3,4,5], [2,4,8],[2,3,4],):
+    #     print(f"kind{kind},d_model{d_model},depth{depth},n_free_vars{n_free_vars},head{head},layer{layer}")

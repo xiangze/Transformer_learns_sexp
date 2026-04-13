@@ -122,7 +122,7 @@ def sexps_to_tokens(S:list,padding=False,show=False) -> List[List]:
     else:
         return [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in S],worddict,None
 # ---------------------------------------------------------------------------
-# トークン化 + マスク生成（バグ修正版）
+# トークン化 + マスク生成
 # ---------------------------------------------------------------------------
 def sexpss_to_tokens(
     src_sexps: List[str],
@@ -131,29 +131,23 @@ def sexpss_to_tokens(
     show: bool = False,
     maxlen=0,
 ) -> Tuple[List[List[List[int]]], Dict[str, int], List[List[List[int]]]]:
-    """S式文字列のペアをトークン列に変換し、パディング+マスクを付与する。
-    Returns:
-        tokenss:  [[src_token_seqs], [tgt_token_seqs]]  （パディング済み）
-        worddict: トークン辞書
-        maskss:   [[src_masks], [tgt_masks]]
-                  各マスクは 0=有効, 1=パディング
-    """
     # --- 辞書構築 ---
     worddict = makedict(src_sexps)
     worddict.update(makedict(tgt_sexps))
     # --- トークン化 ---
-    tokenss = [
-            [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in sexps]
-                for sexps in (src_sexps, tgt_sexps)  ]
-    if(maxlen==0):
+    tokenss = [ [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in sexps]  for sexps in (src_sexps, tgt_sexps)  ]
+    if maxlen == 0:
         maxlen = max(len(seq) for seqs in tokenss for seq in seqs)
     print(f"maxlen={maxlen}")
-    # === 修正: マスクはトークン化 *後* の長さで生成する ===
-    # 旧コードは元の文字列 (src_sexps / tgt_sexps) の len() を使っていたため、
-    # 文字列長とトークン列長が一致しないケースでマスクがずれていた。
-    maskss = [ [[int(i >= len(seq)) for i in range(maxlen)] for seq in seqs] for seqs in tokenss ]
-    # --- パディング ---
-    tokenss = [  [seq + [0] * (maxlen - len(seq)) for seq in seqs] for seqs in tokenss ]
+    # --- maxlen を超えるシーケンスを切り詰める ---
+    tokenss = [ [seq[:maxlen] for seq in seqs] for seqs in tokenss ]
+    # --- マスク生成（切り詰め後の長さを基準に） ---
+    maskss = [[[int(i >= len(seq)) for i in range(maxlen)] for seq in seqs]
+        for seqs in tokenss ]
+    # --- パディング（maxlen - len(seq) は必ず >= 0） ---
+    tokenss = [ [seq + [0]*(maxlen - len(seq)) for seq in seqs] for seqs in tokenss]
+
+    assert len(tokenss[0][0]) == len(maskss[0][0]), (f"token length {len(tokenss[0][0])}, mask length {len(maskss[0][0])}" )
     return tokenss, worddict, maskss
 
 def sexps_to_tokens_onehot(S:list,show=False) -> List[List]:        
