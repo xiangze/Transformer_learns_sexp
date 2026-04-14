@@ -226,50 +226,22 @@ def vanilla_demo(params={"d_model":64,"nhead":4,"dim_ff":128,"num_layer":2,"max_
         # 小さなデモ：nn.TransformerEncoder で hooks により注意重みを取得
         save_attention_heatmap(gen_TransformerEncoder1(params),params,params["vocab_size"],device,pname,x,mask,out_dir,show=True)
 
-def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./",show=False,getAttention=True):
+def save_attention_heatmap(model,params:dict,vocab_size,device,pname,x=None,mask=None,out_dir="./",show=False):
         model.to(device)
         model.eval()
-        if(getAttention):
-            attn_maps_by_encoder, handles = tr.attach_all_encoder_attn_hooks(model,average_attn_weights=False)# head ごとに取りたいなら False
-            pname="Amat_"+pname
-            # forward を 1 回回す（ここで辞書が埋まる）
-            x=model(x,mask)
-            assert(not torch.isnan(x).any())
-            # torch.backends.cuda.enable_flash_sdp(False)
-            # torch.backends.cuda.enable_mem_efficient_sdp(False)
-            # torch.backends.cuda.enable_math_sdp(True)
-            plot_multi_attention_heatmaps(attn_maps_by_encoder,params,out_dir,pname,show)
-            # 終わったら hook を外す（重要）
-            for h in handles:
-                h.remove()
-            #print(attn_maps_by_encoder)
-        else:
-            pname="QK"+pname
-            print(pname)
-            #attn_maps_by_encoder, handles = tr.attach_qk_hooks_to_transformer_encoder(model)
-            x = torch.randn(1, 1, params["d_model"]).to(device)
-            qks=[]
-            for layer in model.enc.layers:
-                x, out = layer(x)       # 単層で確認するのが楽
-                qks.append(out["qk"])
-                #print(layer,qks[-1])
-
-            fig,axes=plt.subplots(params["num_layer"],params["nhead"], figsize=(4*params["nhead"],4*params["num_layer"]), sharex=True)
-            axes = np.atleast_2d(axes)
-            for i,x in enumerate(qks):
-                ax = axes[i, h]
-                im=ax.imshow(x,cmap="viridis",aspect="auto")#, vmin=global_min,vmax=global_max)        
-                ax.set_title(f"layer {i}")
-                ax.set_xlabel("Key")
-                ax.set_ylabel("Query")
-                ax.grid(True)
-            fig.suptitle(pname)
-            cbar = ax.figure.colorbar(im, ax=ax, **{})
-            cbar.ax.set_ylabel("", rotation=-90, va="bottom")
-            plt.tight_layout()
-            plt.savefig(f"{out_dir}/{pname}.png")
-            plt.close(fig)
-            np.save(f"data/{pname}.npy",np.arrays(qks))
+        attn_maps_by_encoder, handles = tr.attach_all_encoder_attn_hooks(model,average_attn_weights=False)# head ごとに取りたいなら False
+        # forward を 1 回回す（ここで辞書が埋まる）
+        x=model(x,mask)
+        assert(not torch.isnan(x).any())
+        # torch.backends.cuda.enable_flash_sdp(False)
+        # torch.backends.cuda.enable_mem_efficient_sdp(False)
+        # torch.backends.cuda.enable_math_sdp(True)
+        plot_multi_attention_heatmaps(attn_maps_by_encoder,params,out_dir,"Amat_"+pname,show)
+        # 終わったら hook を外す（重要）
+        for h in handles:
+            h.remove()
+        if(show):
+            print(attn_maps_by_encoder)
 
 def extract_qkv_weights(mha: torch.nn.MultiheadAttention):
     E = mha.embed_dim
@@ -309,6 +281,8 @@ def show_QKV(model, pname,num_heads,out_dir,x=None,device="cuda"):
                 global_max=max(global_max,np.max(Whead))
                 global_min=min(global_min,np.min(Whead))
                 WS[title].append(Whead)
+
+    np.save(f"data/{pname}.npy",np.arrays([WS["Q"],WS["K"],WS["V"]]))
     ln=len(WS["Q"])
     fig,axes=plt.subplots(3,ln, figsize=(4*ln,4*3), sharex=True)
     fig.suptitle(pname)
@@ -324,7 +298,36 @@ def show_QKV(model, pname,num_heads,out_dir,x=None,device="cuda"):
     plt.tight_layout()
     plt.savefig(f"{out_dir}/{pname}.png")
     plt.close(fig)
-        
+
+def qkv(model,pname,params,device,out_dir):
+        pname="QK"+pname
+        print(pname)
+        #attn_maps_by_encoder, handles = tr.attach_qk_hooks_to_transformer_encoder(model)
+        x = torch.randn(1, 1, params["d_model"]).to(device)
+        qks=[]
+        for layer in model.enc.layers:
+            x, out = layer(x)       # 単層で確認するのが楽
+            qks.append(out["qk"])
+            #print(layer,qks[-1])
+
+        fig,axes=plt.subplots(params["num_layer"],params["nhead"], figsize=(4*params["nhead"],4*params["num_layer"]), sharex=True)
+        axes = np.atleast_2d(axes)
+        for i,x in enumerate(qks):
+            ax = axes[i, 3]#?
+            im=ax.imshow(x,cmap="viridis",aspect="auto")#, vmin=global_min,vmax=global_max)        
+            ax.set_title(f"layer {i}")
+            ax.set_xlabel("Key")
+            ax.set_ylabel("Query")
+            ax.grid(True)
+        fig.suptitle(pname)
+        cbar = ax.figure.colorbar(im, ax=ax, **{})
+        cbar.ax.set_ylabel("", rotation=-90, va="bottom")
+        plt.tight_layout()
+        plt.savefig(f"{out_dir}/{pname}.png")
+        plt.close(fig)
+        np.save(f"data/{pname}.npy",np.arrays(qks))
+
+
 def show_QKV_demo(params={"d_model":64,"nhead":4,"dim_ff":128,"num_layer":2,"max_len":1024,"vocab_size":10},
                  device="cuda",out_dir="./",pname="QKV",x=None):    
         show_QKV(gen_TransformerEncoder1(params),pname,params["nhead"],out_dir=out_dir,device=device,x=x)

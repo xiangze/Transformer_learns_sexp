@@ -124,8 +124,9 @@ def attach_all_encoder_attn_hooks(
                 attn_maps_by_encoder[module_path] = attn_by_layer
                 handles_all.extend(handles)
         else:
-            print(type(model))
-            raise ValueError("model should be TransformerEncoder or at.AttentionOnlyNet")
+            #print(type(model),"model should be TransformerEncoder or at.AttentionOnlyNet")
+            #raise ValueError("model should be TransformerEncoder or at.AttentionOnlyNet")
+            pass
     return attn_maps_by_encoder, handles_all
 
 @torch.no_grad()

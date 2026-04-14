@@ -78,6 +78,7 @@ class AttentionOnlyNet(nn.Module):
         self.debug=debug
         self.batch_size=params["batch_size"]
         self.seq_len=params["seq_len"]
+        
 
         if(embedding):
             self.tok = nn.Embedding(params["vocab_size"], params["d_model"])
@@ -90,6 +91,7 @@ class AttentionOnlyNet(nn.Module):
             self.layers = nn.ModuleList([AttentionOnlyBlock(params)for _ in range(num_layers)])
    
         self.embedding=embedding
+
     def forward(self,
         ids: torch.Tensor,
         attn_mask: torch.Tensor | None = None,
@@ -103,8 +105,8 @@ class AttentionOnlyNet(nn.Module):
         else:
             ids=ids.to(torch.float32)
             attn_mask=attn_mask.to(torch.bool)
-        #attn_mask バイナリマスクの場合、True は対応する位置がアテンションの対象にならないことを示します。
-        #key_padding_mask バイナリマスクの場合、True を指定すると、対応するキー値はアテンション処理において無視されます。
+        #attn_mask True は対応する位置がアテンションの対象にならないことを示します。
+        #key_padding_mask Trueに対応するキー値はアテンションにおいて無視されます。
         if key_padding_mask is None:# 2D: (batch, seq_len)
             if src_ids is not None:
                 key_padding_mask = (src_ids == self.pad_id)  
@@ -119,7 +121,6 @@ class AttentionOnlyNet(nn.Module):
                 else:
                     a=ids.shape[0]
                     try:
-                        #key_padding_mask=torch.tensor(attn_mask[0,:].repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool).clone().detach()
                         key_padding_mask=attn_mask[0,:].repeat(a).reshape((a,self.seq_len)).to(torch.bool).clone().detach()
                     except Exception  as e:
                         print(f"{e}")
@@ -151,6 +152,7 @@ class AttentionOnlyNet(nn.Module):
                 key_padding_mask=key_padding_mask,
             )
             assert not (torch.isnan(ids).any()),f"ids {ids}"
+
         return ids
 
 class AttentionOnlyRegressor(AttentionOnlyNet):

@@ -424,29 +424,26 @@ def pipeline1(args,out_root,i,max_len):
     return pairs_to_tensor(pairs,args)
 
 def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k,pair):
-    #max_len=max(params_tr["seq_len"],params_tr["max_len"])
     if args.show_msg:
         print(f"--- eval sample input {i}th/{args.n_eval} ---")
-    # if(pairs==None):
-    #     xin,mask=pipeline1(args,out_root,i,max_len)
-    # else:
-    #     
     xin,mask=pairs_to_tensor([pair],args)
     #nan検出用
     xout=model(xin,mask)
-    assert(not torch.isnan(xout).any()),f"xout{xout}"
-    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
+    assert(not torch.isnan(xin).any()),f"xin {xin}"
+    assert(not torch.isnan(xout).any()),f"xout {xout}"
+    vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/")
     try:
         vis.show_QKV(model.enc, f"QKV_{pname}_{k}_{i}",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
-    except:
-        print("fail to make QKV")
-        pass
+    except Exception as e:
+        print(f"fail to make QKV: {e}")
+
 
 def makesuf(args,params_tr,params_sexp):
     pname="".join([f"{k}_{v}_" for k,v in params_tr.items()])
     pname=pname+"".join([f"{k}_{v}_" for k,v in params_sexp.items()])+f"_epoch{args.epochs}"
     for k,v in {"sexpfilename__":"","want_":"","num_free_vars":"var","num_layer":"l","d_model":"d_",
-                "seq_len":"seq","max_depth":"depth","batch_size":"b","max_len":"maxlen","dim_ff":"ff","dropout":"dr","num_":"n_"}.items():
+                "seq_len":"seqlen","max_depth":"depth","batch_size":"b","max_len_":"len","dim_ff":"ff","dropout":"dr",
+                "num_":"n_","nhead":"head","__":"_"}.items():
         pname=pname.replace(k,v)
     for l in ["model_fixed","recursive_","attentiononly_","noembedded_","True","False"]:
         pname=pname.replace(l,"")
@@ -514,12 +511,10 @@ def pipeline(args,
     pname=makesuf(args,params_tr,params_sexp)
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
 
-    models=[]
     paris_vals=[]
     with open(f"log/{pname}.log","w") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
             paris_vals.append([pairs[i] for i in va_idx])
-            #models.append(
             model=train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fpw)
             mprint(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions",args.show_msg)
             for i in range(args.n_eval):
