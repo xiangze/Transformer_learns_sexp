@@ -119,7 +119,8 @@ class AttentionOnlyNet(nn.Module):
                 else:
                     a=ids.shape[0]
                     try:
-                        key_padding_mask=torch.tensor(attn_mask[0,:].repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool).clone().detach()
+                        #key_padding_mask=torch.tensor(attn_mask[0,:].repeat(a).reshape((a,self.seq_len)) ,dtype=torch.bool).clone().detach()
+                        key_padding_mask=attn_mask[0,:].repeat(a).reshape((a,self.seq_len)).to(torch.bool).clone().detach()
                     except Exception  as e:
                         print(f"{e}")
                         print(f"attn_mask[0,:].repeat(a)={attn_mask[0,:].repeat(a).shape},[a,seq_len]=[{a},{self.seq_len}]")

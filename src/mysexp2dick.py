@@ -142,8 +142,7 @@ def sexpss_to_tokens(
     # --- maxlen を超えるシーケンスを切り詰める ---
     tokenss = [ [seq[:maxlen] for seq in seqs] for seqs in tokenss ]
     # --- マスク生成（切り詰め後の長さを基準に） ---
-    maskss = [[[int(i >= len(seq)) for i in range(maxlen)] for seq in seqs]
-        for seqs in tokenss ]
+    maskss = [[[int(i >= len(seq)) for i in range(maxlen)] for seq in seqs] for seqs in tokenss ]
     # --- パディング（maxlen - len(seq) は必ず >= 0） ---
     tokenss = [ [seq + [0]*(maxlen - len(seq)) for seq in seqs] for seqs in tokenss]
 

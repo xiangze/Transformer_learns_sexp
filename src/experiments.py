@@ -31,9 +31,8 @@ def depth_test(args):
             args.num_layer = l
             exec(args,sys.stdout)
 
-def init(args,force_train=False,show_msg=True):
+def init(args,show_msg=True):
     args.n_sexps = 10000  # 生成するS式サンプル数
-    args.force_train=force_train
     args.use_amp=False
     args.show_msg=show_msg
     args.attentiononly=True
@@ -78,7 +77,7 @@ def attention_combination(args):
 
 def layers(args,show_msg=True):
     args=init(args)
-    for l in range(1,5):
+    for l in range(1,4):
         args.num_layer = l
         exec(args,None)    
 

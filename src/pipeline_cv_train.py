@@ -81,6 +81,7 @@ class PipelineArgs:
     use_amp: bool = False  # mixed precision training
     test_attention:bool=False
     show_msg:bool=True
+    clean:bool=False
     # old
     use_s2d: bool = False  # legacy flag
 
@@ -129,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use_amp", action="store_true")
     parser.add_argument("--test_attention", action="store_true")
     parser.add_argument("--show_msg", action="store_false")
+    parser.add_argument("--clean", action="store_true") #remove cache files
     # old
     parser.add_argument("--use_s2d", action="store_true")
     return parser
@@ -340,26 +342,27 @@ def load_converted( path: str,args ) -> Dict[List[List[int]], List[List[int]], L
     mprint(f"[cache] read {l} pairs from {path}",args.show_msg)
     return q
 
-def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,maxlen:int=0) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+def _tokenize_and_cache(src_sexps: List[str], tgt_sexps: List[str],  cache_path: str,maxlen:int=0,save=True) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     """トークン化を実行し、結果をキャッシュに保存して返す。"""
     tokenss, _worddict, maskss = mys2d.sexpss_to_tokens(src_sexps, tgt_sexps, show=False,maxlen=maxlen)
     src_tokens, tgt_tokens = tokenss
     src_masks, tgt_masks = maskss
-    save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
+    if(save):
+        save_converted(cache_path, src_tokens, tgt_tokens, src_masks, tgt_masks)
     return {"srcs":src_tokens, "targets":tgt_tokens, "src_masks":src_masks, "target_masks":tgt_masks}
 
-def load_tokens(args,src_sexps, tgt_sexps,maxlen,path,use_cache=True) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
+def load_tokens(args,src_sexps, tgt_sexps,maxlen,path,use_cache=True,save=True) -> Dict[List[List[int]], List[List[int]], List[List[int]], List[List[int]]]:
     if(os.path.isfile(path) and use_cache):
         try:
             tokens= load_converted(path,args)
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             print(f"[cache] 読み込み失敗 ({e})。再変換します。")
-            tokens = _tokenize_and_cache(src_sexps, tgt_sexps, path,maxlen )
+            tokens = _tokenize_and_cache(src_sexps, tgt_sexps, path,maxlen,save )
     else:
-        tokens = _tokenize_and_cache(src_sexps, tgt_sexps, path,maxlen )
+        tokens = _tokenize_and_cache(src_sexps, tgt_sexps, path,maxlen,save )
     return tokens
 
-def convert(src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cache=True) -> Tuple[List[List[np.ndarray]], int]:
+def convert(src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cache=True,save=True) -> Tuple[List[List[np.ndarray]], int]:
     """S式ペアをモデル入力用のトークン行列ペアに変換する。
 
     1. キャッシュがあれば読み込む（JSON 形式）。
@@ -379,7 +382,7 @@ def convert(src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cach
     """
     t0 = time.time()
     cache_path = _build_cache_path(args)
-    tokens=load_tokens(args,src_sexps, tgt_sexps,maxlen,cache_path,use_cache)
+    tokens=load_tokens(args,src_sexps, tgt_sexps,maxlen,cache_path,use_cache,save)
     if args.show_msg:
         for k ,v in tokens.items():
             print(f"{k}, shap {np.array(v).shape}")
@@ -409,24 +412,31 @@ def convert(src_sexps: List[str],  tgt_sexps: List[str],  args,maxlen=0,use_cach
     return pairs, vocab_size,max_seq_len
 
 
-def pipeline1(args,out_root,i,max_len):
-    S,ss,steps=genSexps(args,out_root,num=1,dump=False,seed=i)
-    pairs,_,_=convert(S,ss,args,max_len,use_cache=False)
+def pairs_to_tensor(pairs,args):
     ds = [tensor(np.array(list(t))) for t in zip(*pairs)]
     mask=tensor(np.ones(ds[2].shape)).to(args.device)
     assert(torch.any(mask!=0))#mask=1のとき入力が有効になる
     return ds[0].to(args.device),mask
 
-def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k):
-    max_len=max(params_tr["seq_len"],params_tr["max_len"])
+def pipeline1(args,out_root,i,max_len):
+    S,ss,steps=genSexps(args,out_root,num=1,dump=False,seed=i)
+    pairs,_,_=convert(S,ss,args,max_len,use_cache=False,save=False)
+    return pairs_to_tensor(pairs,args)
+
+def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k,pair):
+    #max_len=max(params_tr["seq_len"],params_tr["max_len"])
     if args.show_msg:
-        print(f"--- eval sample input {i}th/{args.n_eval}")
-    xin,mask=pipeline1(args,out_root,i,max_len)
+        print(f"--- eval sample input {i}th/{args.n_eval} ---")
+    # if(pairs==None):
+    #     xin,mask=pipeline1(args,out_root,i,max_len)
+    # else:
+    #     
+    xin,mask=pairs_to_tensor([pair],args)
+    #nan検出用
     xout=model(xin,mask)
     assert(not torch.isnan(xout).any()),f"xout{xout}"
     vis.save_attention_heatmap(model,params_tr,vocab_size,args.device,f"{pname}_{k}_{i}",x=xin,mask=mask,out_dir="img/",getAttention=("outQK"!=params_tr["model"]))
     try:
-        #vis.show_QKV(model.enc, "QKV_"+pname,params_tr["nhead"],out_dir="img/",device="cuda")
         vis.show_QKV(model.enc, f"QKV_{pname}_{k}_{i}",params_tr["nhead"],out_dir="img/",device="cuda",x=torch.randn(params_tr["d_model"]))
     except:
         print("fail to make QKV")
@@ -450,7 +460,8 @@ def makesuf(args,params_tr,params_sexp):
     pname=pname.replace(k,v)        
     return pname
 
-def train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fpw):
+def train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fpw):
+    mprint(f"[5/5][fold {k+1}/{args.kfold}] start",args.show_msg)
     os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
 
     model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
@@ -458,8 +469,9 @@ def train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_i
     for i in range(len(pairs)):
         assert(np.any(pairs[i,2:4,:]==0)),print(pairs[i])#masks
 
-    ds_train = tensor([np.array(pairs[i]) for i in tr_idx])
-    ds_val   = tensor([np.array(pairs[i]) for i in va_idx])
+    ds_train = tensor(np.array([pairs[i] for i in tr_idx]))
+    ds_val   = tensor(np.array([pairs[i] for i in va_idx]))
+    assert(k!=0 or (len(ds_train)>0 and len(ds_val)>0) ),f"{tr_idx},{va_idx},len(pairs)={len(pairs)}"
     if(len(ds_train)>0 and len(ds_val)>0):
         modelname=f"model/{pname}_{k}.pth"
         if(os.path.isfile(modelname) and not args.force_train):
@@ -473,7 +485,8 @@ def train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_i
                 model=make_model(params_tr,args.model,vocab_size,args.debug)
                 model.load_state_dict(state_dict, strict=True)
                 model=model.to(args.device)
-            train_loss,best_val_loss,last_val_loss=1,1,1
+            train_loss,best_val_loss,last_val_loss=1,-1,-1
+            mprint(f"load {modelname}",args.show_msg)
         else:
             model,train_loss,best_val_loss,last_val_loss=train_one_fold(args,model, ds_train, ds_val,
                                                     epochs=args.epochs, batch_size=args.batch_size,
@@ -481,13 +494,7 @@ def train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_i
             save(model.state_dict(), modelname)
         msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
         dprint(msg,fpw)
-        mprint(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions",args.show_msg)
-        for i in range(args.n_eval):
-            eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k)
-
-def train_eval_pairs_folds(args,pairs,pname,params_tr,out_root,folds,vocab_size,fp):
-    for k, (tr_idx, va_idx) in enumerate(folds):
-        train_eval_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fp)
+    return model
 
 def pipeline(args,
              params_sexp:dict,
@@ -507,8 +514,16 @@ def pipeline(args,
     pname=makesuf(args,params_tr,params_sexp)
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
 
+    models=[]
+    paris_vals=[]
     with open(f"log/{pname}.log","w") as fpw:
-        train_eval_pairs_folds(args,pairs,pname,params_tr,out_root,folds,vocab_size,fpw)
+        for k, (tr_idx, va_idx) in enumerate(folds):
+            paris_vals.append([pairs[i] for i in va_idx])
+            #models.append(
+            model=train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fpw)
+            mprint(f"[5/5][fold {k+1}/{args.kfold}] visualizing attentions",args.show_msg)
+            for i in range(args.n_eval):
+                eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k,paris_vals[k][i])
     print("Fin.")
 
 def run_all(args,out_root):
@@ -576,7 +591,18 @@ if __name__=="__main__":
     out_root = Path(args.output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     args.use_amp=args.use_amp and (args.device=="cuda")       
-    if(args.all):
+    if(args.clean):
+        params_sexp:dict={"num":args.n_sexps,"num_free_vars":args.n_free_vars,"max_depth":args.max_depth,"sexpfilename":args.sexpfilename,"want_kind":args.want_kind}
+        params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
+                    "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
+                    "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
+                    "batch_size":args.batch_size,"noembedded":args.noembedded}
+        pname=makesuf(args,params_tr,params_sexp)
+        filename=f"rm sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt"
+        print(filename)
+        os.remove(filename)
+        os.remove(filename+"_conv.json")
+    elif(args.all):
         run_all(args,out_root)
     elif(args.simple):
         run_small(args,out_root,["simple"])
