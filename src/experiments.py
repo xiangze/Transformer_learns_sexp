@@ -63,11 +63,28 @@ def recursive_embedded(args):
             args.d_model = d_model  # depth of model
             exec(args,logfp)
 
+def nonrecursive(args):
+    args=init_attentiononly_recursive(args)
+    date= datetime.datetime.now()
+    args.recursive=False
+    with open("nonrecursive.log","a") as logfp:
+        dprint(f"run {date}",logfp)        
+        for kind, d_model, depth, n_free_vars, head, layer in itertools.product(
+            ["simple","add","ring","meta"],[128,256,512],
+            [2,3,4], [3,4], [8,16],[2,3,4],):
+            # Transformer params
+            args.want_kind=kind
+            args.max_depth = depth  # 各S式の最大深さ
+            args.n_free_vars = n_free_vars  # 各S式の自由変数の数
+            args.num_layer = layer
+            args.nhead = head  # num. of heads 
+            args.d_model = d_model  # depth of model
+            args.dim_ff=d_model
+            exec(args,logfp)
+
 def attention_combination(args):
     args=init_attentiononly_recursive(args)
     with open("attentiononly_examples.log","a") as logfp:
-        # for noembedded in [False,True]:
-        #     args.noembedded=noembedded
             for recursive in  [True ,False]:
                 args.recursive=recursive
                 for l in  [1,2,3,4]:
@@ -94,5 +111,6 @@ def combination(args):
 
 if __name__ == "__main__":
     args = p.parse_args()
-    recursive_embedded(args)
+    nonrecursive(args)
+    #recursive_embedded(args)
     #layers(args,True)

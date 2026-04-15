@@ -1,12 +1,13 @@
 from __future__ import annotations
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class SharedAttentionOnly(nn.Module):
     """
     RNN風Attention Only Layer
     """
-    def __init__(self, params:dict,debug=False, weightvisible=False):#可視化したいときはTrue
+    def __init__(self, params:dict,debug=False, weightvisible=False,act=None):#可視化したいときはTrue
         super().__init__()
         self.steps = params["num_layer"]# 反復回数（＝層数に相当）
         d_model=params["d_model"]
@@ -24,6 +25,7 @@ class SharedAttentionOnly(nn.Module):
         self.step_embed = None
         self.weightvisible=weightvisible
         self.debug=debug
+        self.act=act
 
     def forward(self,
         x_tok: torch.Tensor,                 # (B, L, d_model) すでにトークン側で埋め込み済み
@@ -57,13 +59,16 @@ class SharedAttentionOnly(nn.Module):
                 exit()
             h=attn_out            
         # 残差 + LayerNorm
-        h = h + self.dropout(h)
+        h = h + self.dropout(attn_out)
+        if(act):
+            h=F.gelu(h)
         h = self.norm(h)
+
         return h #self.norm(h)+ self.dropout(attn_out)
 
 class AttentionOnlyBlock(SharedAttentionOnly):
-    def __init__(self, params:dict,debug=False, weightvisible=False):#可視化したいときはTrue
-        super().__init__(params,debug,weightvisible)
+    def __init__(self, params:dict,debug=False, weightvisible=False,act=False):#可視化したいときはTrue
+        super().__init__(params,debug,weightvisible,act)
         self.steps=1
 
 class AttentionOnlyNet(nn.Module):
@@ -71,7 +76,7 @@ class AttentionOnlyNet(nn.Module):
     Multi-Head Attention層のみが連続するネットワーク
     入力はすでに埋め込み済みids（形状: (batch, seq_len, d_model)）を想定
     """
-    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False,embedding=False):
+    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False,embedding=False,act=False):
         super().__init__()
         num_layers=params["num_layer"]
         self.pad_id=params["pad_id"]
@@ -86,9 +91,9 @@ class AttentionOnlyNet(nn.Module):
             self.tok = None 
 
         if(recursive):
-            self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible)])
+            self.layers = nn.ModuleList([SharedAttentionOnly(params,weightvisible=weightvisible,act=act)])
         else:
-            self.layers = nn.ModuleList([AttentionOnlyBlock(params)for _ in range(num_layers)])
+            self.layers = nn.ModuleList([AttentionOnlyBlock(params,act=act)for _ in range(num_layers)])
    
         self.embedding=embedding
 
@@ -149,15 +154,13 @@ class AttentionOnlyNet(nn.Module):
             ids = layer(
                 ids,
                 attn_mask,          # (L,L) causal mask
-                key_padding_mask=key_padding_mask,
-            )
+                key_padding_mask=key_padding_mask, )
             assert not (torch.isnan(ids).any()),f"ids {ids}"
-
         return ids
 
 class AttentionOnlyRegressor(AttentionOnlyNet):
-    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False,embedding=False):
-        super().__init__(params,debug,recursive,weightvisible,embedding)
+    def __init__(self, params:dict,debug=False,recursive=False,weightvisible=False,embedding=False,act=False):
+        super().__init__(params,debug,recursive,weightvisible,embedding,act)
         d_model=params["d_model"]        
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
@@ -169,8 +172,8 @@ class AttentionOnlyRegressor(AttentionOnlyNet):
         return yhat
 
 class AttentionOnlyRecursiveRegressor(AttentionOnlyRegressor):
-    def __init__(self, params:dict,debug=False,weightvisible=False,embedding=False):
-        super().__init__(params,debug,True,weightvisible,embedding)
+    def __init__(self, params:dict,debug=False,weightvisible=False,embedding=False,act=False):
+        super().__init__(params,debug,True,weightvisible,embedding,act)
 
 if __name__ == "__main__":
     import argparse    

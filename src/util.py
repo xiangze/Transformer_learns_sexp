@@ -3,6 +3,19 @@ import torch
 from typing import Any, List, Tuple, Optional
 import numpy as np
 
+def mprint(msg,on):
+    if(on):
+        print(msg)
+
+def dprint(s,fp,on=True):
+    if(on):
+        print(s)
+        if(type(fp)==list):
+            for f in fp:
+                print(s,file=f)
+        else:   
+            print(s,file=fp)
+
 def pri(k,v,fp):
     print(k,f"shape:{v.shape}",file=fp)
     if(v.dim()>2):
@@ -96,7 +109,7 @@ def eval_core(device,model,val_loader,criterion,use_amp=True):
     val_loss = val_running_loss / val_total
     return val_loss 
 
-def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True,peri=10,debug=False):
+def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,scheduler=None,use_amp=True,eval=True,peri=10,debug=False,fpw=None):
     best_val_loss = 1e10
     val_loss=0.
     model.to(device)
@@ -111,7 +124,7 @@ def traineval(epochs,device,model,train_loader,val_loader,criterion,optimizer,sc
                 msg+=f"val_loss={val_loss:.4f}  "
             #if(scheduler!=None):
                 #msg+=f"lr={scheduler.get_last_lr()[0]:.6f}"
-            print(msg)
+            dprint(msg,fpw)
 
         if(scheduler!=None):
             scheduler.step()

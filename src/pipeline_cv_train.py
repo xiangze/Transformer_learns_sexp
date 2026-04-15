@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Tuple, Union,Dict
 import util
+from util import mprint, dprint
 import sexp2dick as s2d
 import mysexp2dick as mys2d
 import matrix_visualizer as vis
@@ -30,18 +31,6 @@ import attentiononly as atn
 import itertools
 import copy
 
-def mprint(msg,on):
-    if(on):
-        print(msg)
-
-def dprint(s,fp,on=True):
-    if(on):
-        print(s)
-        if(type(fp)==list):
-            for f in fp:
-                print(s,file=f)
-        else:   
-            print(s,file=fp)
 
 @dataclass
 class PipelineArgs:
@@ -70,6 +59,7 @@ class PipelineArgs:
     recursive: bool = False  # recursive attention variant flag
     attentiononly: bool = False  # attention-only model flag
     noembedded: bool = False  # disable token embedding
+    activation: bool = False #True use gelu for Attention only NN
     # others
     n_eval: int = 2  # eval num
     output_dir: str = "./runs/exp"  # output directory
@@ -189,9 +179,9 @@ def make_model(params,model_kind,vocab_size,debug):
     
     if params["attentiononly"]:
         if params["recursive"]:
-            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding)
+            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding,act=args.activation)
         else:    
-            model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding)
+            model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding,act=args.activation)
     else:
         
         if model_kind == "recursive":
@@ -212,7 +202,8 @@ def train_one_fold(args,
                    ds_train, ds_val,
                    epochs: int, batch_size: int,
                    device:str="cuda", use_amp=True,evalperi=100,debug=False,
-                   num_workers=1
+                   num_workers=1,
+                   fpw=None
                    ) -> Optional[Any]:
     mprint(f"Device: {device} amp:{use_amp}",args.show_msg)
     pin = (device == "cuda")
@@ -230,7 +221,7 @@ def train_one_fold(args,
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
-    train_loss,best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True,peri=evalperi,debug=debug)
+    train_loss,best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True,peri=evalperi,debug=debug,fpw=fpw)
     return model,train_loss,best_val_loss,last_val_loss
 
 simplekinds=["simple","meta","arith","add","meta","ring"]
@@ -487,7 +478,7 @@ def train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, v
         else:
             model,train_loss,best_val_loss,last_val_loss=train_one_fold(args,model, ds_train, ds_val,
                                                     epochs=args.epochs, batch_size=args.batch_size,
-                                                    device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug)
+                                                    device=args.device,use_amp=args.use_amp,evalperi=args.evalperi,debug=args.debug,fpw=fpw)
             save(model.state_dict(), modelname)
         msg=f"[5/5][fold {k+1}/{args.kfold}] train loss: {train_loss}, best val loss: {best_val_loss}, last val loss: {last_val_loss}"
         dprint(msg,fpw)
