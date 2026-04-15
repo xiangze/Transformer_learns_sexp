@@ -91,8 +91,9 @@ def attention_combination(args):
                     args.num_layer = l
                     exec(args,logfp)
 
-def layers(args,show_msg=True):
+def layers(args,act=True,show_msg=True):
     args=init_attentiononly_recursive(args)
+    args.activate=act
     for l in range(1,4):
         args.num_layer = l
         exec(args,None)    
@@ -111,6 +112,6 @@ def combination(args):
 
 if __name__ == "__main__":
     args = p.parse_args()
-    nonrecursive(args)
+    #nonrecursive(args)
     #recursive_embedded(args)
-    #layers(args,True)
+    layers(args,True)

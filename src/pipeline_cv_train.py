@@ -59,7 +59,7 @@ class PipelineArgs:
     recursive: bool = False  # recursive attention variant flag
     attentiononly: bool = False  # attention-only model flag
     noembedded: bool = False  # disable token embedding
-    activation: bool = False #True use gelu for Attention only NN
+    activate: bool = False #True use gelu for Attention only NN
     # others
     n_eval: int = 2  # eval num
     output_dir: str = "./runs/exp"  # output directory
@@ -109,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--recursive", action="store_true")
     parser.add_argument("--attentiononly", action="store_true")
     parser.add_argument("--noembedded", action="store_true")
+    parser.add_argument("--activate", action="store_true")
     # others
     parser.add_argument("--n_eval", type=int, default=defaults.n_eval, help="eval num")
     parser.add_argument("--output_dir", type=str, default=defaults.output_dir)
@@ -179,9 +180,9 @@ def make_model(params,model_kind,vocab_size,debug):
     
     if params["attentiononly"]:
         if params["recursive"]:
-            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding,act=args.activation)
+            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding,act=params["activate"])
         else:    
-            model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding,act=args.activation)
+            model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding,act=params["activate"])
     else:
         
         if model_kind == "recursive":
@@ -409,11 +410,6 @@ def pairs_to_tensor(pairs,args):
     assert(torch.any(mask!=0))#mask=1のとき入力が有効になる
     return ds[0].to(args.device),mask
 
-def pipeline1(args,out_root,i,max_len):
-    S,ss,steps=genSexps(args,out_root,num=1,dump=False,seed=i)
-    pairs,_,_=convert(S,ss,args,max_len,use_cache=False,save=False)
-    return pairs_to_tensor(pairs,args)
-
 def eval_show(args,params_tr,model,out_root,i,vocab_size,pname,k,pair):
     if args.show_msg:
         print(f"--- eval sample input {i}th/{args.n_eval} ---")
@@ -436,7 +432,7 @@ def makesuf(args,params_tr,params_sexp):
                 "seq_len":"seqlen","max_depth":"depth","batch_size":"b","max_len_":"len","dim_ff":"ff","dropout":"dr",
                 "num_":"n_","nhead":"head","__":"_"}.items():
         pname=pname.replace(k,v)
-    for l in ["model_fixed","recursive_","attentiononly_","noembedded_","True","False"]:
+    for l in ["activate","model_fixed","recursive_","attentiononly_","noembedded_","True","False"]:
         pname=pname.replace(l,"")
     if(params_tr["recursive"]):
         pname+="_recur"
@@ -444,7 +440,8 @@ def makesuf(args,params_tr,params_sexp):
         pname+="_ato"
     if(params_tr["noembedded"]):    
         pname+="_noemb"
-
+    if(params_tr["activate"]):    
+        pname+="_act"
     pname=pname.replace(k,v)        
     return pname
 
@@ -564,7 +561,7 @@ def  pipeline_arg(args):
     params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
                         "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
                         "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
-                        "batch_size":args.batch_size,"noembedded":args.noembedded}
+                        "batch_size":args.batch_size,"noembedded":args.noembedded,"activate":args.activate}
     if(args.debug):
         print("start ",args)
     pipeline(args, params_sexp,params_tr,out_root=out_root)

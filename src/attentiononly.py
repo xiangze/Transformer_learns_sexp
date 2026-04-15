@@ -60,7 +60,7 @@ class SharedAttentionOnly(nn.Module):
             h=attn_out            
         # 残差 + LayerNorm
         h = h + self.dropout(attn_out)
-        if(act):
+        if(self.act):
             h=F.gelu(h)
         h = self.norm(h)
 
