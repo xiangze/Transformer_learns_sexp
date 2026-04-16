@@ -44,7 +44,7 @@ class PipelineArgs:
     # learning params
     kfold: int = 5  # 交差検証のfold数
     model: str = "fixed"  # モデル種別: fixed/recursive/attentiononly/outQK
-    epochs: int = 100  # 学習エポック数
+    epochs: int = 1000  # 学習エポック数
     batch_size: int = 64  # バッチサイズ
     seed: int = 42  # 乱数シード
     device: str = "cuda"  # device(cpu/cuda)
@@ -500,7 +500,7 @@ def pipeline(args,
     folds = kfold_split(len(pairs), args.kfold, args.seed)[:1]
 
     paris_vals=[]
-    with open(f"log/{pname}.log","w") as fpw:
+    with open(f"log/{pname}.log","a") as fpw:
         for k, (tr_idx, va_idx) in enumerate(folds):
             paris_vals.append([pairs[i] for i in va_idx])
             model=train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, va_idx,fpw)
