@@ -93,10 +93,17 @@ def attention_combination(args):
 
 def layers(args,act=True,show_msg=True):
     args=init_attentiononly_recursive(args)
+    d_model=256
+    head=8
     args.activate=act
-    for l in range(1,4):
-        args.num_layer = l
-        exec(args,None)    
+    args.nhead = head
+    args.d_model = d_model
+    args.dim_ff=d_model
+    for kind in ["simple","add","ring","meta"]:
+        args.want_kind=kind
+        for l in range(1,4):
+            args.num_layer = l
+            exec(args,None)    
 
 def combination(args):
     args=init_attentiononly_recursive(args)
