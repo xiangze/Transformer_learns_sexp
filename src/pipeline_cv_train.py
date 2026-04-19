@@ -24,13 +24,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torch
 from torch import tensor,save
-import util 
 import randhof_with_weight as hof
 import numpy as np
 import attentiononly as atn
 import itertools
 import copy
-
+import transformer_dick_fixed_embed as fixed
+import Recursive_Ttansformer as recursive
 
 @dataclass
 class PipelineArgs:
@@ -72,6 +72,7 @@ class PipelineArgs:
     test_attention:bool=False
     show_msg:bool=True
     clean:bool=False
+    task:str="regression" #regression is for S-exp,classifiation is for test
     # old
     use_s2d: bool = False  # legacy flag
 
@@ -122,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test_attention", action="store_true")
     parser.add_argument("--show_msg", action="store_false")
     parser.add_argument("--clean", action="store_true") #remove cache files
+    parser.add_argument("--task", type=str, default=defaults.task)
     # old
     parser.add_argument("--use_s2d", action="store_true")
     return parser
@@ -156,47 +158,38 @@ def kfold_split(n: int, k: int, seed: int) -> List[Tuple[List[int], List[int]]]:
         folds.append((train_idx, val_idx))
     return folds
 
-def save_pairs_jsonl(pairs: List[Tuple[str, str]], path: Path) -> None:
-    #os.makedirs(path, exist_ok=True)
-    with open(path,"w", encoding="utf-8") as f:
-        for x, y in pairs:
-            f.write(json.dumps({"input": x, "label": y}, ensure_ascii=False) + "\n")
 
 # ------------------------------
 # Training & visualization
 # ------------------------------
-import transformer_dick_fixed_embed as fixed
-import Recursive_Ttansformer as recursive
-def make_model(params,model_kind,vocab_size,debug):
+def make_model(params,model_kind,vocab_size,task,debug):
     embedding=not params["noembedded"]
     params["pad_id"]=0 ##?
     params["vocab_size"]=vocab_size
+    
     if(debug):
         print("batch_size",params["batch_size"])
         print("d_model",params["d_model"])
         print("seq_len",params["seq_len"])
         print("vocab_size",vocab_size)
-    
-    
+
+
     if params["attentiononly"]:
-        if params["recursive"]:
-            model=atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding,act=params["activate"])
+        recursive = params.get("recursive", False)
+        act = params.get("activate", False)
+        if task == "classification":
+            return atn.AttentionOnlyClassifier(params, debug=debug, recursive=recursive, embedding=embedding, act=act)
+        if recursive:
+            return atn.AttentionOnlyRecursiveRegressor(params,debug=debug,weightvisible=True,embedding=embedding,act=act)
         else:    
-            model=atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding,act=params["activate"])
+            return atn.AttentionOnlyRegressor(params,debug=debug,embedding=embedding,act=act)
     else:
-        
-        if model_kind == "recursive":
-            params["recursive"]=True
-            model=fixed.TransformerRegressor(params,debug=debug,recursive=True)
-        elif model_kind == "fixed":
-            params["recursive"]=False
-            model=fixed.TransformerRegressor(params,debug=debug)
-        elif model_kind == "outQK":
-            params["recursive"]=False
-            model=fixed.TransformerRegressor(params,debug=debug,outQK=True)
-        else:
-            raise ValueError("model_kind must be 'fixed' or 'recursive'.")
-    return model
+        is_recursive = (model_kind == "recursive")
+        out_qk = (model_kind == "outQK")
+        if task == "classification":
+            params["task"] = "classification"
+            params["num_classes"] = 10
+        return fixed.TransformerRegressor(params, debug=debug, recursive=is_recursive, outQK=out_qk)
 
 def train_one_fold(args,
                    model,
@@ -222,7 +215,8 @@ def train_one_fold(args,
     criterion=nn.MSELoss() #soft
     opt=optim.Adam(model.parameters(), lr=0.05)
     scheduler=optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda epoch: 0.95 ** epoch)
-    train_loss,best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,use_amp=use_amp,eval=True,peri=evalperi,debug=debug,fpw=fpw)
+    train_loss,best_val_loss,last_val_loss=util.traineval(epochs,device,model,train_loader,val_loader,criterion,opt,scheduler,
+                                                          use_amp=use_amp,eval=True,peri=evalperi,debug=debug,fpw=fpw,task=args.task)
     return model,train_loss,best_val_loss,last_val_loss
 
 simplekinds=["simple","meta","arith","add","meta","ring"]
@@ -449,7 +443,7 @@ def train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, v
     mprint(f"[5/5][fold {k+1}/{args.kfold}] start",args.show_msg)
     os.makedirs(f"{out_root}/fold_{k+1:02d}", exist_ok=True)
 
-    model=make_model(params_tr,args.model,vocab_size,args.debug).to(args.device)
+    model=make_model(params_tr,args.model,vocab_size,args.task,args.debug).to(args.device)
     assert(np.any(pairs!=0))
     for i in range(len(pairs)):
         assert(np.any(pairs[i,2:4,:]==0)),print(pairs[i])#masks
@@ -467,7 +461,7 @@ def train_pairs_1fold(args,pairs,pname,params_tr,out_root,vocab_size,k,tr_idx, v
                 state_dict = ckpt if isinstance(ckpt, dict) and "tok.weight" in ckpt else ckpt["state_dict"]
                 vocab_size, d_model = state_dict["tok.weight"].shape
                 #print("ckpt vocab_size, d_model =", vocab_size, d_model)
-                model=make_model(params_tr,args.model,vocab_size,args.debug)
+                model=make_model(params_tr,args.model,vocab_size,args.task,args.debug)
                 model.load_state_dict(state_dict, strict=True)
                 model=model.to(args.device)
             train_loss,best_val_loss,last_val_loss=1,-1,-1
@@ -579,7 +573,7 @@ if __name__=="__main__":
         params_tr: dict ={"d_model":args.d_model, "nhead":args.nhead, "num_layer" : args.num_layer, 
                     "dim_ff": args.dim_ff, "max_len": args.max_len,"dropout":args.dropout,
                     "model":args.model,"recursive":args.recursive,"attentiononly":args.attentiononly,
-                    "batch_size":args.batch_size,"noembedded":args.noembedded}
+                    "batch_size":args.batch_size,"noembedded":args.noembedded,"task":args.task}
         pname=makesuf(args,params_tr,params_sexp)
         filename=f"rm sexp/sexppair_n{args.n_sexps}_d{args.max_depth}_freevar{args.n_free_vars}_kind{args.want_kind}.txt"
         print(filename)

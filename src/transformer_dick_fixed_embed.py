@@ -244,30 +244,38 @@ class EncoderLayerWithQK(nn.TransformerEncoderLayer):
         return x, {"q": q, "k": k, "qk":qk,"logits": logits}
 
 # =========================================================
-# Transformer 回帰モデル
+# Transformer 回帰/分類モデル
 #    - token embedding + pos embedding + (numeric MLP embedding × mask)
 # =========================================================
 class TransformerRegressor(nn.Module):
-    def __init__(self, params:dict,debug=False,outQK=False,recusive=False):
+    def __init__(self, params: dict, debug=False, recursive=False, outQK=False):
         super().__init__()
-        vocab_size=params["vocab_size"]
-        d_model=params["d_model"]
-        nhead=params["nhead"]
+        vocab_size = params["vocab_size"]
+        d_model = params["d_model"]
+        nhead = params["nhead"]
         num_layers = params["num_layer"]
-        dim_ff= params["dim_ff"]
-        max_len= params["max_len"]
-        self.pad_id=params["pad_id"]
-        dropout=params["dropout"]
-        self.recursive=params["recursive"]
-        self.vocab_size=vocab_size
+        dim_ff = params["dim_ff"]
+        max_len = params["max_len"]
+        self.pad_id = params["pad_id"]
+        dropout = params["dropout"]
+        self.recursive = recursive #,params["recursive"]
+        self.vocab_size = vocab_size
+        self.debug = debug
+
+        # ── タスク設定 
+        # task: "regression" | "classification"
+        # num_classes: 分類クラス数（regressionのときは無視）
+        self.task = params.get("task", "regression")
+        self.num_classes = params.get("num_classes", 2)  # 分類時のクラス数
+
         self.tok = nn.Embedding(vocab_size, d_model)
         self.pos = nn.Embedding(max_len, d_model)
-        self.debug=debug
-        if(self.recursive):
-            enc_layer = at.SharedAttentionOnly(params,debug,weightvidible=True)
-            num_layers=1
+
+        if self.recursive:
+            enc_layer = at.SharedAttentionOnly(params, debug, weightvidible=True)
+            num_layers = 1
         else:
-            if(not outQK):
+            if not outQK:
                 enc_layer = nn.TransformerEncoderLayer(
                     d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
                     dropout=dropout, batch_first=True, activation="gelu"
@@ -277,51 +285,65 @@ class TransformerRegressor(nn.Module):
                     d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
                     dropout=dropout, batch_first=True, activation="gelu"
                 )
+
         self.enc = nn.TransformerEncoder(enc_layer, num_layers=num_layers)
-        
+
+        # ── ヘッド切り替え
+        if self.task == "classification":
+            out_dim = self.num_classes          # (B, num_classes) → CrossEntropyLoss
+        else:
+            out_dim = max_len                   # 従来の回帰ヘッド
+
         self.head = nn.Sequential(
             nn.LayerNorm(d_model),
-            nn.Linear(d_model, max_len)
+            nn.Linear(d_model, out_dim)
         )
 
-
-    def forward(self,
+    def forward(
+        self,
         input_ids: torch.Tensor,
-        attn_mask: torch.Tensor | None = None, ):
+        attn_mask: torch.Tensor | None = None,
+    ):
         B, L = input_ids.shape
         pos_ids = torch.arange(L, device=input_ids.device).unsqueeze(0).expand(B, L)
-        if(self.debug):
+
+        if self.debug:
             try:
                 x = self.tok(input_ids) + self.pos(pos_ids)
-                print("tok",self.tok.weight.detach().cpu())
-                print("pos",self.pos.weight.detach().cpu())
-                print("attn_make",attn_mask.shape)
+                print("tok", self.tok.weight.detach().cpu())
+                print("pos", self.pos.weight.detach().cpu())
+                print("attn_mask", attn_mask.shape)
             except Exception as e:
-                print("Exception! ",e)
-                print("shape",self.tok(input_ids).shape)
-                print("pos",pos_ids.shape)
-                print("pos",pos_ids)
-                print("max input",torch.max(input_ids))
-                print("vocab_size",self.vocab_size)
+                print("Exception!", e)
+                print("shape", self.tok(input_ids).shape)
+                print("pos", pos_ids.shape)
+                print("pos", pos_ids)
+                print("max input", torch.max(input_ids))
+                print("vocab_size", self.vocab_size)
                 exit()
         else:
-            x = self.tok(input_ids) + self.pos(pos_ids)  #a
+            x = self.tok(input_ids) + self.pos(pos_ids)
 
         if attn_mask is None:
             key_padding_mask = (input_ids == self.pad_id)
         else:
-            key_padding_mask = (attn_mask == 0) # True=padding
-        key_padding_mask[:, 0] = False
+            key_padding_mask = (attn_mask == 0)  # True=padding
 
+        key_padding_mask[:, 0] = False
         valid = (~key_padding_mask).sum(dim=1)
         assert torch.all(valid > 0), "Some sequences fully masked!"
 
         h = self.enc(x, src_key_padding_mask=key_padding_mask)
-        cls = h[:, 0, :]  # 先頭が <CLS>
-        yhat = self.head(cls)  # (B,1)
-        if(self.debug):
-            util.nanindex({"h":h,"padding_mask":key_padding_mask,"x":x,"cls":cls,"yhat":yhat},"h")
-        return yhat
+        cls = h[:, 0, :]        # 先頭が <CLS>
+        logits = self.head(cls)  # (B, out_dim)
+
+        if self.debug:
+            util.nanindex(
+                {"h": h, "padding_mask": key_padding_mask,
+                 "x": x, "cls": cls, "logits": logits},
+                "h"
+            )
+        return logits
     
     def add_hook(self, average_attn_weights=False):
         self.attn_dict, self.hooks = attach_encoder_attn_hooks(self.enc, average_attn_weights)        

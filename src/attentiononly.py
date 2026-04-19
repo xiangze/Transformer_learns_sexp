@@ -84,7 +84,6 @@ class AttentionOnlyNet(nn.Module):
         self.batch_size=params["batch_size"]
         self.seq_len=params["seq_len"]
         
-
         if(embedding):
             self.tok = nn.Embedding(params["vocab_size"], params["d_model"])
         else:
@@ -171,6 +170,21 @@ class AttentionOnlyRegressor(AttentionOnlyNet):
         yhat = self.head(cls)  # (B,1)
         return yhat
 
+class AttentionOnlyClassifier(AttentionOnlyNet):
+    def __init__(self, params: dict, debug=False, recursive=False, weightvisible=False, embedding=False, act=False):
+        super().__init__(params, debug, recursive, weightvisible, embedding, act)
+        d_model = params["d_model"]
+        num_classes = params["num_classes"]  # 分類クラス数
+        self.head = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, num_classes)
+        )
+
+    def forward(self, x: torch.Tensor,  attn_mask: torch.Tensor | None = None,  key_padding_mask: torch.Tensor | None = None, ) -> torch.Tensor:
+        cls = super().forward(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)[:, 0, :]  # (B, d_model)
+        logits = self.head(cls)  # (B, num_classes)
+        return logits
+    
 class AttentionOnlyRecursiveRegressor(AttentionOnlyRegressor):
     def __init__(self, params:dict,debug=False,weightvisible=False,embedding=False,act=False):
         super().__init__(params,debug,True,weightvisible,embedding,act)
