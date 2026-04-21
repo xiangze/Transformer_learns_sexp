@@ -159,7 +159,7 @@ def traineval(epochs, device, model, train_loader, val_loader, criterion, optimi
                 if logger:
                     logger.log(metrics, step=epoch)
                 
-            msg += f"[{epoch:03d}/{epochs}] " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items())                
+            msg = f"[{epoch:03d}/{epochs}] " + " ".join(f"{k}={v:.4f}" for k, v in metrics.items())                
             dprint(msg, fpw)
         if scheduler is not None:
             scheduler.step()

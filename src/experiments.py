@@ -1,4 +1,5 @@
-import pipeline_cv_train as p
+#import pipeline_cv_train as p
+from pipeline_class import Pipeline,parse_args
 import itertools
 import datetime
 import sys
@@ -15,13 +16,17 @@ def dprint(s,fp):
 
 def exec(args,logfp):
     dprint(f"params{args}",logfp)
-    p.pipeline_arg(args)    
+    params_tr = {
+        "d_model": args.d_model, "nhead": args.nhead, "num_layer": args.num_layer,
+        "dim_ff": args.dim_ff, "max_len": args.max_len, "dropout": args.dropout,
+        "model": args.model, "recursive": args.recursive, "attentiononly": args.attentiononly,
+        "batch_size": args.batch_size, "noembedded": args.noembedded, "activate": args.activate,
+    }
     try:
-        p.pipeline_arg(args)
+        Pipeline(args).run(params_tr,logfp)
         dprint(f"success: {args}",logfp)
     except Exception  as e:
         dprint(f"fail: {e}",logfp)
-        exit()
     
 def depth_test(args):
     args.use_amp=False
@@ -116,9 +121,18 @@ def combination(args):
                     args.num_layer = l
                     exec(args,logfp)
 
+def compare_ato(args):
+    args=init_attentiononly_recursive(args)
+    with open(f"log/compare_ato.log", "a") as fpw:
+        for l in [1,2,3]:
+            args.num_layer = l
+            for attentiononly in  [True ,False]: 
+                args.attentiononly=attentiononly
+                for kind in ["simple","add","ring","meta"]:
+                    args.want_kind=kind
+                    exec(args,fpw)
 
 if __name__ == "__main__":
-    args = p.parse_args()
-    #nonrecursive(args)
-    #recursive_embedded(args)
-    layers(args,True)
+    args = parse_args()
+    compare_ato(args)
+        

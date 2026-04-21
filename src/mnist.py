@@ -138,7 +138,7 @@ def test1(args,params_tr,train_ds_all, test_ds_all,fpw):
             test_ds   = tensor(np.array([test_ds_all[i] for i in va_idx]))
             train_one_fold(args,train_ds,test_ds,params_tr,pname,args.device,fpw,k)
     else:   
-#            print("train_ds ",type(train_ds_all),isinstance(train_ds_all,torchvision.datasets))
+            #mask?
             train_one_fold(args,train_ds_all,test_ds_all,params_tr,pname,args.device,fpw,0)
         
 def test(args,task,to1D=True):
