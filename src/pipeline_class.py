@@ -137,8 +137,10 @@ class DataManager:
             return self._load_from_file(args.sexpfilename)
 
         mprint("[2/5] Evaluating S-expressions...", args.show_msg)
-        simplekinds = ["simple", "meta", "arith", "add", "ring"]
+        simplekinds = ["simple", "meta", "arith", "add", "ring","heavy"]
         if args.want_kind in simplekinds:
+            SS = hof.gen_and_eval_heavy(num, args.max_depth, seed=seed, want_kind=args.want_kind ,debug=args.debug)
+        elif args.want_kind in simplekinds:
             SS = hof.gen_and_eval_simple(num, args.max_depth, seed=seed,
                                          want_kind=args.want_kind, n_free_vars=args.n_free_vars)
         else:

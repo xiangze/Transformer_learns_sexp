@@ -1,6 +1,9 @@
 import argparse        
 import random
 import math
+from typing import Any, Dict,List, Tuple, Callable, Optional
+import re
+
 # 値::=0,1,2,3,4,5,6
 # bool::=True,False
 # ops::=+,-,*,/
@@ -336,45 +339,256 @@ def gen_op_simple(depth, want_kind="arith"):
         args = [gen_op_simple(depth - 1, want_kind)[0] for _ in range(arity)]
         return "(" + " ".join([op] + args) + ")", "int"
 
-def gen_meta_simple(depth, want_kind="arith",n_free_vars=4):
-    canditates={
+def gen_meta_simple(gen_list_literal_simple,
+                          gen_terminal_int0,
+                          OPS,
+                          depth: int,
+                          want_kind: str = "meta",
+                          n_free_vars: int = 4) -> Tuple[str, str]:
+    """
+    (map (fn [x] (+ x n)) [..])
+    (filter (fn [x] (+ x n)) [..])    ※ 元コードに合わせて > などではなく + を使う場合
+    (reduce (fn [x y] (op x y)) [..] init)
+    """
+    candidates = [
         ("app", 0),
-        ("map", 1),                        
-        ("filter", 1),                        
-        ("reduce", 1),                        
-    }
-    meta=random.choices([c[0] for c in canditates],[c[1] for c in canditates], k=1)[0]
+        ("map", 1),
+        ("filter", 1),
+        ("reduce", 1),
+    ]
+    kinds = [c[0] for c in candidates]
+    weights = [c[1] for c in candidates]
+    meta = random.choices(kinds, weights=weights, k=1)[0]
     op = random.choice(OPS)
-    
-    if(meta=="map" or meta=="filter"): 
-        #"(map (fn [x] (+ x 1)) [1 2 3])",
-        #"(filter (fn [x] (> x 2)) [1 2 3 4])",
-        arity = 1 
-        n=random.randint(2, 4)
-        s=f"({meta} fn [x] ({op} x {n}) " +gen_list_literal_simple(depth-1)[0] +" )"
-        #print(s)
-        return s,"int"
-    elif(meta=="reduce"):      
-        initval=gen_terminal_int0()
-        #"(reduce (fn [a b] (+ a b)) [1 2 3] 0)",
-        s=f"({meta} fn [x y] ( {op} x y) {gen_list_literal_simple(depth-1)[0]} {initval})"
-        return s,"int"
-    elif(meta=="app"):
-        print(f"not supported {want_kind} {meta}")
-        exit()
-    elif(meta=="compose"):
-        print(f"not supported {want_kind} {meta}")
-        exit()
+ 
+    if meta in ("map", "filter"):
+        n = random.randint(1, 4)
+        body = f"({op} x {n})"
+        fn_expr = f"(fn [x] {body})"
+        lst_expr = gen_list_literal_simple(depth - 1)[0]
+        return f"({meta} {fn_expr} {lst_expr})", "list"
+    elif meta == "reduce":
+        init_val = gen_terminal_int0()[0]
+        fn_expr = f"(fn [x y] ({op} x y))"
+        lst_expr = gen_list_literal_simple(depth - 1)[0]
+        return f"(reduce {fn_expr} {lst_expr} {init_val})", "int"
     else:
         print(f"not supported {want_kind} {meta}")
-        exit()
-
+        exit()            
+    
 def gen_expr_simple(depth, want_kind="arith",seed=42,n_free_vars=4):
     if(want_kind=="meta"):
         return gen_meta_simple(depth, want_kind=want_kind,n_free_vars=4)
     else:    
         return gen_op_simple(depth, want_kind=want_kind)
-    
+
+# --------------------------------------------------------------
+# 2. メタ関数を深く積み上げる生成器
+# --------------------------------------------------------------
+def _heavy_list_literal(depth: int,
+                        elem_gen: Callable[[int], Tuple[str, str]],
+                        min_len: int = 3,
+                        max_len: int = 6) -> str:
+    """
+    要素数が多めで、要素自体も簡単な算術式になっているリストリテラル。
+    map/filter/reduce の対象を厚くしてステップ数を稼ぐ。
+    """
+    n = random.randint(min_len, max_len)
+    elems = []
+    for _ in range(n):
+        if depth > 0 and random.random() < 0.5:
+            e, _ = elem_gen(max(0, depth - 1))
+            elems.append(e)
+        else:
+            elems.append(str(random.randint(0, 6)))
+    return "[" + " ".join(elems) + "]"
+
+def _simple_int_expr(depth: int, OPS) -> Tuple[str, str]:
+    """
+    整数を返す小さな算術式。リストの要素や reduce の初期値などに使う。
+    """
+    if depth <= 0:
+        return str(random.randint(0, 6)), "int"
+    op = random.choice(OPS)
+    arity = random.randint(2, 3)
+    args = []
+    for _ in range(arity):
+        if depth > 1 and random.random() < 0.4:
+            e, _ = _simple_int_expr(depth - 1, OPS)
+            args.append(e)
+        else:
+            args.append(str(random.randint(0, 6)))
+    return "(" + " ".join([op] + args) + ")", "int"
+
+def gen_meta_heavy(depth: int, OPS, CMPS, want_kind: str = "any", n_free_vars: int = 4) -> Tuple[str, str]:
+    """
+    map / filter / reduce / compose / partial を入れ子で生成し、
+    リストはなるべく長く・要素も非自明にする。
+    戻り値の型は (式文字列, 種別) で、`gen_and_eval` 系のシグネチャと揃えている。
+    """
+    if depth <= 0:
+        # 終端：3〜5要素のリストを返す map
+        op = random.choice(OPS)
+        n = random.randint(1, 4)
+        lst = _heavy_list_literal(0, lambda d: _simple_int_expr(d, OPS), 3, 5)
+        return f"(map (fn [x] ({op} x {n})) {lst})", "list"
+
+    # 上位構造を選択
+    forms = [
+        ("map_of_map", 3),
+        ("map_of_filter", 2),
+        ("filter_of_map", 2),
+        ("reduce_of_map", 4),     # reduce は最後まで畳むので step 数が稼げる
+        ("reduce_of_filter", 3),
+        ("nested_map", 3),
+        ("compose_map", 2),
+    ]
+    kinds = [c[0] for c in forms]
+    weights = [c[1] for c in forms]
+    form = random.choices(kinds, weights=weights, k=1)[0]
+
+    op1 = random.choice(OPS)
+    op2 = random.choice(OPS)
+    cmp_op = random.choice(CMPS)
+    n1 = random.randint(1, 4)
+    n2 = random.randint(1, 4)
+    threshold = random.randint(0, 4)
+
+    inner_list = _heavy_list_literal(depth, lambda d: _simple_int_expr(d, OPS),  min_len=3, max_len=6)
+
+    if form == "map_of_map":
+        # (map (fn [y] (+ y n2)) (map (fn [x] (* x n1)) [..]))
+        inner = f"(map (fn [x] ({op1} x {n1})) {inner_list})"
+        expr = f"(map (fn [y] ({op2} y {n2})) {inner})"
+        return expr, "list"
+    elif form == "map_of_filter":
+        # (map (fn [y] (+ y n2)) (filter (fn [x] (> x t)) [..]))
+        inner = f"(filter (fn [x] ({cmp_op} x {threshold})) {inner_list})"
+        expr = f"(map (fn [y] ({op2} y {n2})) {inner})"
+        return expr, "list"
+    elif form == "filter_of_map":
+        inner = f"(map (fn [x] ({op1} x {n1})) {inner_list})"
+        expr = f"(filter (fn [y] ({cmp_op} y {threshold})) {inner})"
+        return expr, "list"
+    elif form == "reduce_of_map":
+        # (reduce (fn [a b] (+ a b)) (map (fn [x] (* x n1)) [..]) 0)
+        mapped = f"(map (fn [x] ({op1} x {n1})) {inner_list})"
+        init = str(random.randint(0, 6))
+        expr = f"(reduce (fn [a b] ({op2} a b)) {mapped} {init})"
+        return expr, "int"
+    elif form == "reduce_of_filter":
+        filtered = f"(filter (fn [x] ({cmp_op} x {threshold})) {inner_list})"
+        init = str(random.randint(0, 6))
+        expr = f"(reduce (fn [a b] ({op2} a b)) {filtered} {init})"
+        return expr, "int"
+    elif form == "nested_map":
+        # 3段ネスト: map(map(map(...)))
+        inner1 = f"(map (fn [x] ({op1} x {n1})) {inner_list})"
+        inner2 = f"(map (fn [y] ({op2} y {n2})) {inner1})"
+        op3 = random.choice(OPS)
+        n3 = random.randint(1, 4)
+        expr = f"(map (fn [z] ({op3} z {n3})) {inner2})"
+        return expr, "list"
+    elif form == "compose_map":
+        # ((compose f g) x) は β が 2 段増える
+        # → (map (compose f g) [..]) で要素数ぶんさらに伸びる
+        f1 = f"(fn [x] ({op1} x {n1}))"
+        f2 = f"(fn [y] ({op2} y {n2}))"
+        composed = f"(compose {f1} {f2})"
+        expr = f"(map {composed} {inner_list})"
+        return expr, "list"
+    # フォールバック
+    return f"(map (fn [x] ({op1} x {n1})) {inner_list})", "list"
+
+# --------------------------------------------------------------
+# 3. 候補を多数生成 → ステップ数最大のものを選ぶ
+# --------------------------------------------------------------
+def gen_and_select_high_steps(num_pairs: int,
+                              max_depth: int,
+                              eval_fn: Callable[[str], Tuple],
+                              sexpr_to_str_fn: Callable,
+                              gen_fn: Callable[..., Tuple[str, str]],
+                              candidates_per_pick: int = 8,
+                              min_steps: int = 1,
+                              seed: Optional[int] = None,
+                              gen_kwargs: Optional[dict] = None,
+                              verbose: bool = False
+                              ) -> List[Tuple[str, str, int]]:
+    """
+    Parameters
+    ----------
+    num_pairs : 最終的に欲しい (式, 簡約後, steps) ペアの数
+    max_depth : 各候補の最大深さ
+    eval_fn   : 文字列 S 式を受け取り (value, steps) を返す関数 (totaleval を渡す想定)
+    sexpr_to_str_fn : 内部値を文字列に戻す関数
+    gen_fn    : 1 候補を生成する関数。 gen_fn(depth, **gen_kwargs) -> (str, kind)
+                gen_meta_heavy をラップして渡す。
+    candidates_per_pick : 1 ペアあたり生成して比較する候補数 (大きいほどステップ大)
+    min_steps : これ未満のステップしか進まない候補は捨てる
+    seed      : 乱数シード
+    gen_kwargs: gen_fn に渡す追加引数
+
+    Returns
+    -------
+    [(式文字列, 簡約後の式文字列, steps), ...]
+    """
+    if seed is not None:
+        random.seed(seed)
+    if gen_kwargs is None:
+        gen_kwargs = {}
+
+    pairs: List[Tuple[str, str, int]] = []
+    attempts = 0
+    max_attempts = num_pairs * candidates_per_pick * 3
+
+    while len(pairs) < num_pairs and attempts < max_attempts:
+        best = None  # (steps, expr_str, value_str)
+        for _ in range(candidates_per_pick):
+            attempts += 1
+            try:
+                expr_str, _kind = gen_fn(max_depth, **gen_kwargs)
+            except Exception as e:
+                if verbose:
+                    print("gen failed:", e)
+                continue
+            try:
+                value, steps = eval_fn(expr_str)
+            except Exception as e:
+                if verbose:
+                    print("eval failed:", expr_str, "->", e)
+                continue
+            if steps < min_steps:
+                continue
+            value_str = sexpr_to_str_fn(value)
+            if best is None or steps > best[0]:
+                best = (steps, expr_str, value_str)
+
+        if best is not None:
+            steps, expr_str, value_str = best
+            pairs.append((expr_str, value_str, steps))
+            if verbose:
+                print(f"[{len(pairs)}/{num_pairs}] steps={steps}: {expr_str}")
+    return pairs
+
+def dump_pairs(pairs: List[Tuple[str, str, int]], filename: str) -> None:
+    with open(filename, "w") as f:
+        for expr_str, value_str, steps in pairs:
+            print(f"{expr_str}\t{value_str}\t{steps}", file=f)
+
+def show_pair_summary(pairs: List[Tuple[str, str, int]], top_k: int = 5) -> None:
+    if not pairs:
+        print("(no pairs)")
+        return
+    steps_list = [p[2] for p in pairs]
+    print(f"n={len(pairs)}  "
+          f"min={min(steps_list)} max={max(steps_list)} "
+          f"mean={sum(steps_list)/len(steps_list):.2f}")
+    by_steps = sorted(pairs, key=lambda p: p[2], reverse=True)
+    print(f"--- top {top_k} by steps ---")
+    for expr_str, value_str, steps in by_steps[:top_k]:
+        print(f"[{steps:3d}]  {expr_str}")
+        print(f"      => {value_str}")
+
 # ---- 外から呼ぶ用のラッパー -------------------------------
 def random_typed_sexp(max_depth=5, want_kind="any", seed=None,n_free_vars=5):
     """
@@ -386,11 +600,7 @@ def random_typed_sexp(max_depth=5, want_kind="any", seed=None,n_free_vars=5):
     expr, kind = gen_expr(max_depth, want_kind,n_free_vars=n_free_vars)
     return expr, kind
 
-######
-import re
-import random
-from typing import Any, Dict, Tuple
-
+######### parser #########
 # ---------- Tokenizer & Parser ----------
 
 TOKEN_REGEX = re.compile(r"""
@@ -663,31 +873,23 @@ def _eval_cmp(op, args, env):
         return cands.get(op,lambda vals:False)(vals), steps
     return [op] + vals, steps
 
-def _eval_app(expr, env):  # (f a1 a2 ...)
-    f_val   ,steps=_evalarg(expr[0],env,0) #head f
-    arg_vals,steps =_evalarg(expr[1:],env,0) #args
+def _eval_app(expr, env):
+    f_val, steps = _evalarg(expr[0], env, 0) #head f
+    arg_vals, steps = _evalargs(expr[1:], env, steps) #args
 
     if is_closure(f_val):#fが関数
         params = f_val["params"]
         body = f_val["body"]
-        if isinstance(params,list) or len(arg_vals) != len(params):
-            # 引数個数が合わない場合は簡約しない
-            if(isinstance(arg_vals,list)):
-                return [f_val] + arg_vals, steps
-            else:
-                return [f_val, arg_vals], steps
-        else:
-            #fの評価結果をenvに追加
-            new_env=make_new_env(f_val["env"],params,arg_vals)
-            # β 簡約
-            return _evalargs(body,new_env,steps+1)
-    else:
-        # 関数でなければこれ以上簡約できない
-        if(isinstance(arg_vals,list)):
-            return [f_val] + arg_vals, steps
-        else:
-            return [f_val, arg_vals], steps
-        
+        # 引数の数が合えば β 簡約
+        if isinstance(params, list) and len(arg_vals) == len(params):
+            new_env = make_new_env(f_val["env"], params, arg_vals)
+            v, st = _eval(body, new_env)
+            return v, steps + st + 1
+        # 合わなければ部分簡約のまま
+        return [f_val] + list(arg_vals), steps
+    # 関数でなければ簡約しない
+    return [f_val] + list(arg_vals), steps
+         
 def _eval_compose(expr, env): # (compose f g)  ~> (fn [x] (f (g x)))
     if len(expr) != 3:
         return expr, 0
@@ -901,6 +1103,7 @@ def eval_demo():  # 簡単なデモ
     for s in samples:
         reduce_and_show(s)
 
+########## generate and evaluation ###############
 def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4, 
                  gen=random_typed_sexp,
                  seed=None,debug=False):
@@ -918,6 +1121,22 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4,
 
 def gen_and_eval_simple(num,max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=False):
     return gen_and_eval(num, max_depth, want_kind,n_free_vars, gen_expr_simple,  seed,debug)
+
+def gen_and_eval_heavy(num,max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=False):
+    def gen_and_select_high_steps_default(max_depth, want_kind, seed, n_free_vars,):
+        return  gen_and_select_high_steps(num_pairs=num,
+                                max_depth=max_depth,
+                                eval_fn=_eval_fn,
+                                sexpr_to_str_fn=sexpr_to_str,
+                                gen_fn=gen_fn,
+                                candidates_per_pick=8,
+                                seed=seed,
+                                gen_kwargs= None,
+                                verbose=False)
+    return gen_and_eval(num, max_depth, want_kind,n_free_vars, gen_and_select_high_steps_default,  seed,debug)
+
+
+
 
 def gen_and_eval_print(params,filename="sexppair"):
     seed=params.seed
@@ -967,11 +1186,15 @@ if __name__ == "__main__":
     a=parse_args()
     if(a.demo):
         eval_demo()
+    elif(args.heavy):
+        S=gen_and_eval_heavy(a.n,a.max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=a.debug)
     else:
      if(a.kind=="arith" or a.kind=="simple" or a.kind=="meta" or a.kind=="add" or a.kind=="ring"):
         S=gen_and_eval_simple(a.n,a.max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=a.debug)
      else:
         S=gen_and_eval(a.n,a.max_depth,seed=42)
+    
+
     showsteps(S)
     
     #ns = parse_args()

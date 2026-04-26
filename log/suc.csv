@@ -1,0 +1,14 @@
+,train loss,best_val loss,attentiononly,want_kind,num_layer,n_sexps,n_free_vars,max_depth,kfold,epochs,batch_size,d_model,nhead,dim_ff,max_len,dropout,recursive,activate,n_eval
+0,1608.317,1603.9848,True,'simple',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+1,0,0,True,'add',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+2,0,0.0001,True,'ring',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+3,39.6122,39.523,True,'meta',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+4,1522.0412,1519.1043,False,'simple',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+5,0,0.0003,False,'add',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+6,0,0,False,'ring',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+7,26.5946,26.3945,False,'meta',1,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+8,1608.2889,1603.6607,True,'simple',2,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+9,0,0,True,'add',2,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+10,0,0,True,'ring',2,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+11,39.7241,39.5869,True,'meta',2,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
+12,1522.0489,1519.4286,False,'simple',2,10000,1,4,5,1000,64,256,4,256,4096,0.2,True,False,3
