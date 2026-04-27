@@ -137,12 +137,11 @@ class DataManager:
             return self._load_from_file(args.sexpfilename)
 
         mprint("[2/5] Evaluating S-expressions...", args.show_msg)
-        simplekinds = ["simple", "meta", "arith", "add", "ring","heavy"]
-        if args.want_kind in simplekinds:
+        simplekinds = ["simple", "meta", "arith", "add", "ring"]
+        if args.want_kind in ["heavy"]:# [:simplekinds:]
             SS = hof.gen_and_eval_heavy(num, args.max_depth, seed=seed, want_kind=args.want_kind ,debug=args.debug)
         elif args.want_kind in simplekinds:
-            SS = hof.gen_and_eval_simple(num, args.max_depth, seed=seed,
-                                         want_kind=args.want_kind, n_free_vars=args.n_free_vars)
+            SS = hof.gen_and_eval_simple(num, args.max_depth, seed=seed, want_kind=args.want_kind, n_free_vars=args.n_free_vars)
         else:
             SS = hof.gen_and_eval(num, args.max_depth, seed=seed,
                                   want_kind=args.want_kind, n_free_vars=args.n_free_vars)
@@ -328,7 +327,6 @@ class Pipeline:
                                    task=args.task, debug=args.debug).to(args.device)
         ds_train = tensor(np.array([pairs[i] for i in tr_idx]))
         ds_val   = tensor(np.array([pairs[i] for i in va_idx]))
-        #train_loss, best_val_loss, val_loss
         train_loss, best_val, best_val = trainer.train_fold(model, ds_train, ds_val, fpw)
         dprint(f"[fold {k+1}] train={train_loss:.4f} best_val={best_val:.4f}", fpw)
 

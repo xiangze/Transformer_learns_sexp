@@ -339,12 +339,7 @@ def gen_op_simple(depth, want_kind="arith"):
         args = [gen_op_simple(depth - 1, want_kind)[0] for _ in range(arity)]
         return "(" + " ".join([op] + args) + ")", "int"
 
-def gen_meta_simple(gen_list_literal_simple,
-                          gen_terminal_int0,
-                          OPS,
-                          depth: int,
-                          want_kind: str = "meta",
-                          n_free_vars: int = 4) -> Tuple[str, str]:
+def gen_meta_simple(OPS,depth: int, want_kind: str = "meta", n_free_vars: int = 4) -> Tuple[str, str]:
     """
     (map (fn [x] (+ x n)) [..])
     (filter (fn [x] (+ x n)) [..])    ※ 元コードに合わせて > などではなく + を使う場合
@@ -378,7 +373,7 @@ def gen_meta_simple(gen_list_literal_simple,
     
 def gen_expr_simple(depth, want_kind="arith",seed=42,n_free_vars=4):
     if(want_kind=="meta"):
-        return gen_meta_simple(depth, want_kind=want_kind,n_free_vars=4)
+        return gen_meta_simple(OPS,depth, want_kind=want_kind,n_free_vars=4)
     else:    
         return gen_op_simple(depth, want_kind=want_kind)
 
@@ -568,6 +563,8 @@ def gen_and_select_high_steps(num_pairs: int,
             pairs.append((expr_str, value_str, steps))
             if verbose:
                 print(f"[{len(pairs)}/{num_pairs}] steps={steps}: {expr_str}")
+    assert(len(pairs)>0),f"pairs[0] {len(pairs)}"
+    assert(len(pairs[0])==3)
     return pairs
 
 def dump_pairs(pairs: List[Tuple[str, str, int]], filename: str) -> None:
@@ -1111,32 +1108,29 @@ def gen_and_eval(num_exprs=5, max_depth=4, want_kind="int",n_free_vars=4,
         random.seed(seed)
     result=[]
     for _ in range(num_exprs):
-        #expr_str, kind = gen_expr_simple(max_depth, want_kind, seed, n_free_vars)
         expr_str, kind = gen(max_depth, want_kind, seed, n_free_vars)
+        assert(expr_str!="" and len(expr_str)>0),expr_str
         if(debug):
             print(expr_str)
         value, steps=totaleval(expr_str)
+
         result.append((expr_str,sexpr_to_str(value),steps))
     return result
 
 def gen_and_eval_simple(num,max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=False):
     return gen_and_eval(num, max_depth, want_kind,n_free_vars, gen_expr_simple,  seed,debug)
 
-def gen_and_eval_heavy(num,max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=False):
-    def gen_and_select_high_steps_default(max_depth, want_kind, seed, n_free_vars,):
-        return  gen_and_select_high_steps(num_pairs=num,
-                                max_depth=max_depth,
-                                eval_fn=_eval_fn,
-                                sexpr_to_str_fn=sexpr_to_str,
-                                gen_fn=gen_fn,
-                                candidates_per_pick=8,
-                                seed=seed,
-                                gen_kwargs= None,
-                                verbose=False)
-    return gen_and_eval(num, max_depth, want_kind,n_free_vars, gen_and_select_high_steps_default,  seed,debug)
-
-
-
+def gen_and_eval_heavy(num, max_depth, seed=42, want_kind="arith", n_free_vars=4, debug=False):
+    return gen_and_select_high_steps(
+        num_pairs=num,
+        max_depth=max_depth,
+        eval_fn=totaleval,
+        sexpr_to_str_fn=sexpr_to_str,
+        gen_fn=lambda d, **_kw: gen_meta_heavy(d, OPS, CMPS),
+        candidates_per_pick=8,
+        min_steps=1,
+        seed=seed,
+        verbose=debug,)
 
 def gen_and_eval_print(params,filename="sexppair"):
     seed=params.seed
@@ -1179,6 +1173,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--valtype",  type=str, default="int", help="value type to generate (int, bool, etc.)")
     p.add_argument("--demo",  action="store_true", help="show demo")
     p.add_argument("--kind",  type=str, default="int", help="simple kinds(arith, meta,add,ring)")
+    p.add_argument("--heavy",  action="store_true")
     p.add_argument("--debug",  action="store_true")
     return p.parse_args()
 
@@ -1186,7 +1181,7 @@ if __name__ == "__main__":
     a=parse_args()
     if(a.demo):
         eval_demo()
-    elif(args.heavy):
+    elif(a.heavy):
         S=gen_and_eval_heavy(a.n,a.max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=a.debug)
     else:
      if(a.kind=="arith" or a.kind=="simple" or a.kind=="meta" or a.kind=="add" or a.kind=="ring"):
