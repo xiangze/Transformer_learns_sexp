@@ -3,6 +3,21 @@ from pipeline_class import Pipeline,parse_args
 import itertools
 import datetime
 import sys
+import pandas as pd
+
+def convtocsv(fname="log/success.csv"):
+    with open(fname) as fp:
+        ls=fp.readlines()
+    ds=[]
+    for l in ls:
+        aa=l.replace(" ","").split(",")
+        ds.append({ a.split("=")[0]:a.split("=")[1] for a in aa})        
+    d=pd.DataFrame.from_records(ds)
+    d.to_csv("log/suc.csv")
+
+def makecsvlen(params_d):
+    return ",".join([k+","for k,_ in params_d().items()])
+
 
 def dprint(s,fp):
     print(s)
@@ -22,11 +37,11 @@ def exec(args,logfp):
         "model": args.model, "recursive": args.recursive, "attentiononly": args.attentiononly,
         "batch_size": args.batch_size, "noembedded": args.noembedded, "activate": args.activate,
     }
-    try:
-        Pipeline(args).run(params_tr,logfp)
-        dprint(f"success: {args}",logfp)
-    except Exception  as e:
-        dprint(f"fail: {e}",logfp)
+#    try:
+    Pipeline(args).run(params_tr,logfp)
+    dprint(f"success:, {makecsvlen(params_tr)}",logfp)
+#    except Exception  as e:
+#        dprint(f"fail: {e}",logfp)
     
 def depth_test(args):
     args.use_amp=False
@@ -123,14 +138,15 @@ def combination(args):
 
 def compare_ato(args):
     args=init_attentiononly_recursive(args)
-    with open(f"log/compare_ato.log", "a") as fpw:
-        for l in [1,2,3]:
+    args.heavy=True
+    with open(f"log/compare_heavy.log", "a") as fpw:
+        for max_len,l, ato, kind in itertools.product(
+            [1024,2048,4096],[1,2,3],[True ,False],["simple","add","ring","meta"]):
             args.num_layer = l
-            for attentiononly in  [True ,False]: 
-                args.attentiononly=attentiononly
-                for kind in ["simple","add","ring","meta"]:
-                    args.want_kind=kind
-                    exec(args,fpw)
+            args.attentiononly=ato
+            args.want_kind=kind
+            args.max_len=max_len
+            exec(args,fpw)
 
 if __name__ == "__main__":
     args = parse_args()

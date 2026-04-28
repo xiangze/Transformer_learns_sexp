@@ -136,9 +136,12 @@ def sexpss_to_tokens(
     worddict.update(makedict(tgt_sexps))
     # --- トークン化 ---
     tokenss = [ [sexp_str_to_tokens(s, worddict=worddict, show=show) for s in sexps]  for sexps in (src_sexps, tgt_sexps)  ]
+    m=max(len(seq) for seqs in tokenss for seq in seqs)
     if maxlen == 0:
-        maxlen = max(len(seq) for seqs in tokenss for seq in seqs)
-    print(f"maxlen={maxlen}")
+        maxlen = m
+    else:
+        assert(m<maxlen),f"maxlen={maxlen}"
+        print(f"maxlen={maxlen}")
     # --- maxlen を超えるシーケンスを切り詰める ---
     tokenss = [ [seq[:maxlen] for seq in seqs] for seqs in tokenss ]
     # --- マスク生成（切り詰め後の長さを基準に） ---
