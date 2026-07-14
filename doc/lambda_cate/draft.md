@@ -1,8 +1,18 @@
 # Transformers as Functional Dynamics
 
 ## Abstract
+We 
+
+----
 
 ## Introduction
+
+### Contributions of this paper
+- point out equivalence between self-attention and functional dynamics, property category .
+- explains the relation between self-attention and symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$
+eval-apply loop which is required for in-context learning.
+- and numerical experiment 
+MLP is 
 
 ## Preriminalies
 ### Transformers as self attention
@@ -32,13 +42,13 @@ its parameters $$.
 
 ### Linear lambda calculus
 lambda calculus is basis of functions as variables. 
-beta reduction and eta 
-all calculation in is multiple steps of evaluations(eval) and applications(apply) of formulars.
+All calculation in is multiple steps of evaluations(eval) and applications(apply) of formulars.
 eval is 
+three rules, alpha conversion , beta reduction and eta conversion.
 this eval-apply loop is common at the various field of computer programming.
 lambda calculus is formulate by using Cartesian closed category (CCC) which have product $X \times Y $ of tow objects X,Y and exponential $X^Y$.
-There is natual bjiction $Hom()$
-X \times Y $ of tow objects X,Y and exponential $$.
+There is natual bjiction $Hom(X \times Y,Z) \simeq Hom(X,Z^Y)$. There is one morphism called $\lambda g$ for all g
+
 Linear logic is restriction of usual mathematical logic.
 
 ## Formulation
@@ -51,8 +61,9 @@ along to FV.
 
 ## Discussion
 ### Relateed works
-## Conclutions and Perspectives
 
+## Conclutions and Perspectives
+In this paper, we show the correndence between lambda calculas and transformer, functional dynamics and explain the linear calculation ability in-context of transformers is composed Markov and SMCC categories.
 ### Reference
 
 
