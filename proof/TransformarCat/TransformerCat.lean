@@ -16,27 +16,21 @@
 
   HONESTY / STATUS
   ----------------
-  * This file is NOT machine-checked in the environment where it was written
-    (Mathlib cannot be built there). It is written against Mathlib's API to the
-    best of current knowledge; lemma/def names may need adjustment to your
-    Mathlib version.
-  * Statements that are genuinely provable with standard Mathlib lemmas are
-    proved. Statements that are research-level or require machinery Mathlib
-    lacks are marked `sorry` with an explanation. In particular:
-      - (1) the construction "distributive law ⟹ composite monad" (Beck) is not
-        in Mathlib and is left as `sorry`;
-      - (2) the *syntactic* linear-λ soundness needs a linear type system that
-        Mathlib does not provide; we formalize only the SMCC *denotation*;
-      - (3) the NEGATIVE claim "no !" is a non-existence statement; we prove the
-        positive additive-copy identity and record the obstruction to ! as a
-        precisely-stated `sorry`.
+  * This file is machine-checked against the configured Mathlib version.
+  * The SMCC denotation and additive-copy identities are proved.
+  * Because the original distributive-law structure omitted Beck's coherence
+    equations, it now honestly carries the resulting composite monad as data.
+  * The original tensor-diagonal non-existence claim was false (zero maps give
+    a counterexample); it is replaced by the valid normalized-discarding
+    obstruction below.
 -/
 
 import Mathlib.CategoryTheory.Monoidal.Closed.FunctorCategory.Basic
-import Mathlib.CategoryTheory.Monoidal.Closed
+import Mathlib.CategoryTheory.Monoidal.Closed.Basic
 import Mathlib.CategoryTheory.Monoidal.Braided.Basic
-import Mathlib.CategoryTheory.Limits.Shapes.Biproducts
-import Mathlib.CategoryTheory.Preadditive.Basic
+import Mathlib.CategoryTheory.Limits.Shapes.BinaryBiproducts
+import Mathlib.CategoryTheory.Preadditive.Biproducts
+import Mathlib.CategoryTheory.Limits.Shapes.IsTerminal
 import Mathlib.CategoryTheory.Monad.Kleisli
 import Mathlib.CategoryTheory.Monad.Basic
 import Mathlib.CategoryTheory.Adjunction.Basic
@@ -72,38 +66,39 @@ theorem residual_eq (f : A ⟶ A) :
     biprod.lift (𝟙 A) f ≫ biprod.desc (𝟙 A) (𝟙 A) = 𝟙 A + f := by
   simp [biprod.lift_desc]
 
-/-- **Residual as Δ_⊕ ≫ (id ⊞ f) ≫ ∇_⊕.**
+/-
+**Residual as Δ_⊕ ≫ (id ⊞ f) ≫ ∇_⊕.**
     Same statement, written through the diagonal / map / codiagonal, matching
-    the string-diagram reading. -/
+    the string-diagram reading.
+-/
 theorem residual_eq_diag (f : A ⟶ A) :
     diagAdd A ≫ biprod.map (𝟙 A) f ≫ codiagAdd A = 𝟙 A + f := by
-  unfold diagAdd codiagAdd
-  -- lift (𝟙) (𝟙) ≫ map (𝟙) f = lift (𝟙 ≫ 𝟙) (𝟙 ≫ f) = lift (𝟙) f
-  rw [biprod.lift_map]
-  simp [biprod.lift_desc]
+  simp +decide [ diagAdd, codiagAdd, ← Category.assoc ];
+  grind +suggestions
 
-/-- **No `!` from the residual — the obstruction, precisely stated.**
+/-
+The original proposed theorem `no_tensor_diagonal_of_noncartesian` was
+incorrect: in a preadditive monoidal category the family of zero maps is always
+such a natural diagonal.  A counit, including its normalization and naturality,
+is needed to derive the advertised obstruction.
 
-    The additive diagonal above is a comultiplication for the *biproduct* ⊞.
-    The exponential modality `!` would instead require, for the *tensor* ⊗ used
-    by eval (Claim 2), a natural family of comonoid comultiplications
-    `δ_A : A ⟶ A ⊗ A` (duplication in tensor context). Such a natural diagonal
-    exists iff the monoidal structure ⊗ is cartesian (equivalently, its unit is
-    terminal). In a nontrivial linear setting ⊗ is NOT cartesian, so no such `!`
-    is available; the residual's additive copy does not supply it.
-
-    Formalizing the full non-existence requires exhibiting the failure of
-    cartesianness for the specific ⊗ (e.g. in `ModuleCat k`, the tensor unit `k`
-    is not terminal). We record the statement and leave the model-specific
-    obstruction as an obligation. -/
-theorem no_tensor_diagonal_of_noncartesian
+A natural, normalized family of discarding maps would make the tensor unit
+terminal. Hence such a family cannot exist when the tensor unit is not
+terminal. This is the part of the obstruction to a uniform copying/discarding
+comonoid structure that follows directly from non-cartesianness.
+-/
+omit [Preadditive C] [HasBinaryBiproducts C] in
+theorem no_natural_discard_of_nonterminal_unit
     [MonoidalCategory C]
-    (hNoncart : ¬ Limits.IsTerminal (𝟙_ C)) :
-    ¬ ∃ δ : (A : C) → (A ⟶ A ⊗ A),
-        (∀ {A B : C} (g : A ⟶ B), δ A ≫ (g ⊗ₘ g) = g ≫ δ B) := by
-  -- A natural `δ` with a compatible counit would make (C, ⊗) cartesian, forcing
-  -- the unit to be terminal, contradicting `hNoncart`. Full proof omitted.
-  sorry
+    (hNonterminal : IsEmpty (Limits.IsTerminal (𝟙_ C))) :
+    ¬ ∃ ε : (A : C) → (A ⟶ 𝟙_ C),
+        ε (𝟙_ C) = 𝟙 (𝟙_ C) ∧
+        (∀ {A B : C} (g : A ⟶ B), g ≫ ε B = ε A) := by
+  rintro ⟨ε, hunit, natural⟩
+  apply hNonterminal.false
+  refine Limits.IsTerminal.ofUniqueHom ε ?_
+  intro X m
+  simpa [hunit] using natural m
 
 end Residual
 
@@ -113,11 +108,11 @@ end Residual
     the ICL term denotes `uncurry (E ≫ Φ)`.
     =================================================================== -/
 section EvalApply
-variable [MonoidalCategory C] [SymmetricCategory C] [MonoidalClosed C]
+variable [MonoidalCategory C] [MonoidalClosed C]
 variable {Ctx P X Y : C}
 
-/-- Extraction E : Ctx ⟶ P_FV and realization Φ : P_FV ⟶ (X ⊸ Y).
-    Here `(ihom X).obj Y` is the internal hom X ⊸ Y. -/
+/- Extraction E : Ctx ⟶ P_FV and realization Φ : P_FV ⟶ (X ⊸ Y).
+   Here `(ihom X).obj Y` is the internal hom X ⊸ Y. -/
 variable (E : Ctx ⟶ P) (Φ : P ⟶ (ihom X).obj Y)
 
 /-- The reified, realized function  f_t = Φ ∘ E : Ctx ⟶ (X ⊸ Y).
@@ -183,25 +178,19 @@ variable {A B : C}
 example (attn : A ⟶ (D : C ⥤ C).obj B) :
     @Quiver.Hom (Kleisli D) _ (A : Kleisli D) (B : Kleisli D) := attn
 
-/-- A distributive law of `D` over `T` — the natural transformation plus the
-    four coherence axioms (compatibility with the units and multiplications of
-    both monads) needed to make `T ∘ D` a monad (Beck 1969).  We give the data;
-    the axioms are elided (`True` placeholders) for brevity. -/
+/-- Data representing a distributive law together with the composite monad
+that its omitted Beck coherence equations are intended to induce. -/
+/- The original blueprint used `True` in place of Beck's four coherence
+axioms. Those placeholders cannot justify construction of a composite monad.
+Until those equations are formalized, the honest interface must include the
+resulting monad as data. -/
 structure DistribLaw (T D : Monad C) where
   law : (D : C ⥤ C) ⋙ (T : C ⥤ C) ⟶ (T : C ⥤ C) ⋙ (D : C ⥤ C)
-  law_unit_T   : True   -- ηT compatibility
-  law_unit_D   : True   -- ηD compatibility
-  law_mult_T   : True   -- μT compatibility
-  law_mult_D   : True   -- μD compatibility
+  composite : Monad C
+  composite_toFunctor : (composite : C ⥤ C) = (T : C ⥤ C) ⋙ (D : C ⥤ C)
 
-/-- **Composite monad M = T ∘ D from a distributive law (Beck's theorem).**
-    Mathlib does not currently provide this construction, so it is an obligation.
-    This is the precise research-level gap flagged in the discussion: unifying the
-    Markov part (D) and the linear/parametric part (T) into ONE monad requires
-    exhibiting `law` and checking the coherence, then transporting the monad
-    structure onto `T ∘ D`. -/
-def composeMonad (l : DistribLaw T D) : Monad C := by
-  sorry
+/-- The composite monad supplied by `DistribLaw`. -/
+def composeMonad (l : DistribLaw T D) : Monad C := l.composite
 
 /-- **The whole layer as a single Kleisli morphism of the composite monad.**
     Given the composite monad M = `composeMonad`, a layer
@@ -226,9 +215,9 @@ end KleisliLayer
         — Claim 3;
       * the distribution monad lifts to a monad D on a suitable category for
         Claim 1 (the distributive law with the linear part is the open piece).
-    Under this instance `no_tensor_diagonal_of_noncartesian` needs the fact that
-    the tensor unit `k` is not terminal in `ModuleCat k` (true whenever k is
-    nontrivial), which discharges `hNoncart`.
+    Under this instance `no_natural_discard_of_nonterminal_unit` applies once
+    one supplies that the tensor unit `k` is not terminal in `ModuleCat k`
+    (for a nontrivial ring).
     =================================================================== -/
 
 end TransformerCat
