@@ -1,0 +1,17 @@
+name = "TransformerCatf"
+version = "0.1.0"
+defaultTargets = ["TransformerCat"]
+
+[[lean_lib]]
+name = "TransformerCat"
+
+[[lean_exe]]
+name = "transformercatf"
+root = "Main"
+
+
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+# 最新の安定版、またはLeanのバージョンに合ったタグを指定
+# rev = "v4.x.x" 
