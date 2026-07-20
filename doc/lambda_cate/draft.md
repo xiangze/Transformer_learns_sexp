@@ -1,4 +1,4 @@
-# Transformers as Functional Dynamics, equivalency between lambda calculas and linear logic
+\# Transformers as Functional Dynamics, equivalency between lambda calculas and linear logic
 Categoriy theoretical view of transformas and functional dynamics, threre ability of higher order calculation
 ## Abstract
 In this papaer we show the equivalence of functional dynamics and self-attention mechanism, then linear interpolation type functional dynamics whose parameter is $\epsilon$ is equivalent to the functor between functinoal dynamics from Yoneda's lemma.
@@ -30,10 +30,10 @@ has natural transformation $Hom(X\times Y,X)\simeq Hom(X,Z^Y)$ for objects $X,Y,
 
 In $\lambda$ calculas or programming points of view, morphism $X→Z^Y$ is currying, $Z^Y→Z$ is $\lambda$ calculation, i.e eval of S-expression.As explained bellow eval is the oparation to generate attention matricx from matrix Q and K in transformers, function application $f\cdot f$ in functional dynamics.
 
-But category $\rf{Vect}$ whose objects is vector space, morphisms are linear transformation can not have nonlinear diagnal product. This is not CCC but called Symmetric Monoid Closed Category(SMCC). In this categorey usual eval can not used for functions without constraint , but use linear logic deduction, which treat propositions as finite resources when it used comsumed.
+But category $\bf{Vect}$ whose objects is vector space, morphisms are linear transformation can not have nonlinear diagnal product. This is not CCC but called Symmetric Monoid Closed Category(SMCC). In this categorey usual eval can not used for functions without constraint , but use linear logic deduction, which treat propositions as finite resources when it used comsumed.
 
 In same motivation research as this paper, "Topos of Transformer Networks"(https://arxiv.org/abs/2403.18415v2)”
-The assume Neural networks on category $\rf{RELU}$ whose objects are usual vector space, morphisms are partially linear map, because  Relu is usually useed as activation function. Then transformers can be treated topos, which is special case of CCC,and have univarsal higher order caluculation ability.
+The assume Neural networks on category $\bf{RELU}$ whose objects are usual vector space, morphisms are partially linear map, because  Relu is usually useed as activation function. Then transformers can be treated topos, which is special case of CCC,and have univarsal higher order caluculation ability.
 
 Linear logic is related to programming language such as Rust[] which constraint resource(such as variables) usage at one time. This reduces programming bugs. Also There is a research to connect linear logc and probablistic programming, bayesian inference [].
 
@@ -43,22 +43,20 @@ some theorems are written in Lean.
 
 ### Contributions of this paper
 - Point out equivalence between self-attention and functional dynamics, property category .
-- Explains the relation between self-attention and symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$ eval-apply loop which is required for in-context learning.
+- Explains the relation between self-attention and symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$ eval-apply loop which is required for in-context learning and correspondence between markov category and attention matrix.
 - Numerical experiment about MLP function, only Key-value retirival or not.
-- formalizations of proofs by lean
+- proofs of formalizations witten in lean
 ## Preriminalies
-### Transformers and their Components
+### Attention mechanism, Transformers and their Components
 Transformers are consists of several components, attention, MLP(multi layer perceptron ,FFN), softmax, residual connecctions and layer normalizations.
 Attentions are product of  and input vector x.
 MLP is composition of all-to-all vector product using matrix product and activation function such as Relu or softmax.
 softmax function is usually used tu make attention matrix in conrast of Relu in the tail of MLP.
 Residual connection (Resnet) is often used in LLM. The benefits of Resnet are not only preserving information of earlier layers during training and inference, but simplify loss landscape. Resnet with nearly identical matrix convertion are similar to differential operations  which is called neural ordinal differencial equiation(neural ODE).
-Layer normalizations are 
+Layer normalizations are another important part of transformers to regulize internal data.
 
-positional encoders are also important for identify the order of tokens.
-layered transformers is usually called large language models (LLM).
-this have  context learning alibity and scalability of learning.
-LLMs and their variants made various applications and theoretical explanations.
+Positional encoders are also important for identify the order of tokens which is encoded and put in attention mechanism.
+Layered transformers is usually called large language models (LLM). LLMs have in-context learning ability[] and scalability of learning. LLMs and their variants made various applications and theoretical explanations.
 
 Function vector(FV) [] a concept embedded in LLM as a head of transformer. FV is portable among but layer of LLM.
 
@@ -81,16 +79,18 @@ In other formulation f,g are objects, functional dynamics itself is morphism and
 By restricting the formular of FD linear interpolations as in the original paper, category theory can explation  its parameters $\epsilon$.
 Functor between FD and parameter $\epsilon$ is natual transformation. Yoneda's lemma $Nat(h_A,F)\simeq F(A)$ corresponds to this relation is 
 
-The compsition of attention ($f\times f$) and MLP as operators makes self recuesivee fractal shaped function easily. Fig .  shows ssteps  to make make two identical map inside the region of s map .
+ One of the interesting property of FD is hierachical structure of points. Fixed points are on diagonal line called type I, type II fixed points is depends of  type III fixed points refer to ...and so on.  [].
+This hierrachical structure is not merely analogy of the one of natural/programming languages but coreesponds to deduction or in-context learning process of transformers. As following figure, functional dynamics can generate self similar fractal shaped function by adding matrix operation as in attention mechanism. 
+The compsition of attention ($f\times f$) and MLP as operators makes self recuesivee fractal shaped function easily. Fig .  shows ssteps  to make make two identical map inside the region of s map. This fact also implies self similar structure of language related to folding mechanism of FD.
+
+The original form of FD only consists of function apply( $\cdot$ ),addition (+) and multiplication of constant value $\epsilon$ this restrict related to logic structure which transformers can calculete as following chapter.
 
 ### Category Theory
-As described above, FD can be treated as some kind of Category.
-Lambda calculus treats functions as same as variables. All calculation in is multiple steps of evaluations(eval) and applications(apply) of formulars.
+As described above,section FD and attention can be treated as some kind of Category and it should have ability to explain and evaluate functions. Lambda calculus treats functions as same as variables. All calculation in is multiple steps of evaluations(eval) and applications(apply) of formulars.
 Eval is so called charactor string as a formular and calucule this, apply is the process that substitutiig eval's result to other formular. This eval-apply loop is common at the various field of computer programming.
 Lambda calcuals has three rules, alpha conversion beta reduction and eta conversion. Alpha conversion is just replacement of bound variable names. Beta reduction is application of a function described by $(\lambda x. f) b=f(b)$ in usual notation. Eta conversion is desciribed as $(\lambda x. f) x=f $, here rhs and lhs are same function (constant). This is corresponds to extentionality definition of functions sets theorem.
 
-lambda calculus is formulate by using Cartesian closed category (CCC) which have product $X \times Y $ of tow objects X,Y and exponential object $X^Y$.
-There is natual bjiction $Hom(X \times Y,Z) \simeq Hom(X,Z^Y)$. There is one morphism called carring $\lambda g$ for all g and 
+Lambda calculus is formulate by using Cartesian closed category (CCC) which have product $X \times Y $ of tow objects X,Y and exponential object $X^Y$. There is natual bjiction $Hom(X \times Y,Z) \simeq Hom(X,Z^Y)$. There is one morphism called carring $\lambda g$ for all g and 
 morphism $Z^Y→Z$ is evaluation of program(S-expression in LISP),this is coresspons to calculation of Attention matrix from Q and K, $f\cdot f$ of functional dynamics.
 
 $$\begin{CD}
@@ -99,13 +99,18 @@ A @>{f}>> B \\
 C @ C @ .
 \end{CD}$$
 
+There is another least restricted category called Symmetric Monoid Closed Category(SMCC). SMCC do not have diagonal morphism. Intuidively diagonal morphism and its dual is copy and delete operation. When logic and proof process changes called linear logic.
+This condition is common when the objects are vector space and morphisms are linear transformation because $X\times X=X^2$ is nonlinear. The category called $\bf{Vect}$.
+
+Be aware with cardinality of exponential object is larger than the cardinality of objects "Lawvere's fixed-point theorem"[].
+
 Markov category(MC) is a modeling of probablistic calculation and statistical inference and induction. The object are probablistic distributions, the morphism are transition kernels between distributions. Generally MC is not CCC, 
 
 ### Linear Logic, Linear lambda calculus
 Linear logic is restriction of usual mathematical logic which only allows finite use of propositions during a deduction.
 Topos is CCC which has .
 
-operator ⊸ means is linear implication, which signifies "deriving a conclusion by consuming a premise exactly once".
+operator $A \multimap B$ means is linear implication, which signifies "deriving a conclusion by consuming a premise exactly once".
 
 ## Formulation
 This chapter explains calculation ability of transformer based on the idea of functional dynmics and spesific cateories composition related to  relation of linear logic.
@@ -118,13 +123,14 @@ Transformers are represented as composition of SMCC and Markov category.
 
 ### functional dynamics, attention matrix, expornential object
 
-### asttention is not CCC
-We show 
-CCC has diagonal morphism $A \rightarrow  A \times A$. Because this is not linear 
-
-but of outout has linear relation. Not to destroy linear structure bt softmax.
+### Attention is not CCC
+We show CCC has diagonal morphism $A \rightarrow  A \times A$. Because this is not linear transformation, categoryt $\bf{Vect}$ is not CCC but 
+but of output has linear relation. Not to destroy linear structure at softmax.
 
 #### softmax and Markov category
+ In attention mechanism 
+ here we call this simply softmax. 
+ can be thought as probability disutribution of  and Markov category
 
 ### Transformers as composition of SMCC and Markov category
 composition of SMCC and Markov category
@@ -135,10 +141,17 @@ Linear logic restricts using a proposition (or a fact) only once time during ded
 This makes the efficiency of deduction per one layer lower,  but makes mutch simpler deduction program as in human programming using spesicif language like Rust[].
 
 ## The total formular
-the total formular of a layer of transformer as composition of Markov category and SMCC is depicted as fig.
-$KL(D) \rightarrow (Vect, ) \rightarrow (Vect, ) $
+The main statement of this paper is drawn as attention matrix is 
+the data flow in a layer of transformer as composition of Markov category and SMCC is depicted as fig.
+$KL(D) \rightarrow (Vect, ) \rightarrow (Vect, ) \rightarrow (Vect, ) $
 
-Here KL(D) is Kleis category and D is 
+$x \xrightarrow{W_q,W_k} (Q,K) \xrightarrow{softmax,carring} A \simeq Hom(X, \multimap Y) \xrightarrow{eval} C$
+
+$ Kl(D)(pos,pos) \ni A \simeq (internal)Hom(V\multimap V)$
+
+$A \otimes V \rightarrow C$
+
+Here $KL(D)$ is Kleisli category and $D$ is distribution monad. $D$ and $Kl(D)$ is the category which have kernel 
 The function of MLP has not shown here. Actual function is numerical experimentally decided.
 
 ## Experiment 
@@ -147,7 +160,7 @@ There is a statement that the function of MLP in transformer is key-value retriv
 
 Here we show the result of relation between residual connection strength and ablity of reuse intermediate values. This hypothesis means the correlation between reuseage number $r$ and degration of model without redisual connection.
 
-In this experiment r interruction effect is not observed. This means neither additive copy and Markov copy works as copy function solely.
+In this experiment r interaction effect is not observed. This means neither additive copy and Markov copy works as copy function solely.
 
 ### proof of theorems formulation
 - Theorem 1 a layer of transformer is Kleisli morphism of composit monado M.
@@ -174,14 +187,13 @@ they first showed attention is exponential morphism of a category and has $lambd
 But they ommits nonlinearity of the function such as softmax. Approximation of softmax function by PL is avairable but the probablistic meaaing of element of attention matrix is broken. The function of MLPs are not also explained well. 
 Actually they apply pretopos insted of topos in the discussion. The assumption and application range is different from this paper but core idea, exponential object as meta-function is same.
 
-Along to FV.
+Our statement result different perspective than []and []. Reguarding transformer as linear logic. Another difference of our papaer and above research is varification hypothesis by numeical and formal experiment using programming language such as python and lean. 
 
-Another difference of our papaer and above research is varification hypothesis by numeical and formal experiment using programming language such as python and lean. 
-Our statement result different perspective than []and []. Reguarding transformer as linear logic.
+Along to FV, there are spesific change meaning or expression of words to inherent type.These head do not convert just words like words2vec, but function or morphism between they called function vector. FV can be understood as 
 
-One-step calculation ability is also important question.
-If complex lambda formular(or S-expression) can be evaluate and applied at one time. Make one layer wider is more efficient than more layers. This is expecially important restrict speed, power and circuit footprint condition.In chapter[] we experimentally result both MLP and softmax has  retrive function, the unbalance of attentions and MLPs is 
+One-step calculation ability is also important question. If complex lambda formular(or S-expression) can be evaluate and applied at one time. Make one layer wider is more efficient than more layers. This is expecially important restrict speed, power and circuit footprint condition. In chapter[] we experimentally result both MLP and softmax has retrive function, the unbalance of attentions and MLPs is 
 
+Multi Head attentions (MHA) are also key part of transformer performance. But it is not discussed and evaluated well in this paper. Pararlell architecture may achieved different values assignment to same expression and reduction. MLPs after concat work as selecting and merging the results, which could be decided this assumption is correct or not experimentally. Mixture-of-expert is same as MHA but larger structure.
 
 ### Learnability
 The success of transformers is not only higher order function programmability and in-context learning, but learnablity and avoiding local minimum, overfitting are also significant properties and affect to large application area industries.
@@ -219,3 +231,4 @@ In this paper, we show the correndence between lambda calculas and transformer, 
 https://learnmechinterp.com/topics/mlps-in-transformers/
 - UTM []
 - Dyck
+- [Lawvere's fixed point theorem](https://ncatlab.org/nlab/show/Lawvere%27s+fixed+point+theorem)
