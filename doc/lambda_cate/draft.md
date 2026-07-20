@@ -1,4 +1,4 @@
-\# Transformers as Functional Dynamics, equivalency between lambda calculas and linear logic
+# Transformers as Functional Dynamics, equivalency between lambda calculas and linear logic
 Categoriy theoretical view of transformas and functional dynamics, threre ability of higher order calculation
 ## Abstract
 In this papaer we show the equivalence of functional dynamics and self-attention mechanism, then linear interpolation type functional dynamics whose parameter is $\epsilon$ is equivalent to the functor between functinoal dynamics from Yoneda's lemma.
@@ -55,6 +55,8 @@ softmax function is usually used tu make attention matrix in conrast of Relu in 
 Residual connection (Resnet) is often used in LLM. The benefits of Resnet are not only preserving information of earlier layers during training and inference, but simplify loss landscape. Resnet with nearly identical matrix convertion are similar to differential operations  which is called neural ordinal differencial equiation(neural ODE).
 Layer normalizations are another important part of transformers to regulize internal data.
 
+![](img/summary.png)
+
 Positional encoders are also important for identify the order of tokens which is encoded and put in attention mechanism.
 Layered transformers is usually called large language models (LLM). LLMs have in-context learning ability[] and scalability of learning. LLMs and their variants made various applications and theoretical explanations.
 
@@ -74,15 +76,30 @@ Generally, the dynamics of functions are governed by fixed points and hieralchy 
  Regarding a fnction as a graph drawn in 2D rectangle, function applicaton to other function ($f\cdot g$) is described as matrix multiplication. In case attention mechanism, f and g corespons to matrix, the non-zero value is  
 row is x -axis, column is y-axis graph.Then a matrix not only represent 1-dimentional function graph but 
 
+As a example $d=d_q=d_k=d_v$ for simplicity, x has only
+で簡単のため$d=d_q=d_k=d_v$とし、xは各行に非零の値を1列しか持たないような形とします。するとその要素は2次元平面に1次元関数のグラフを描いた形になります。下図のように赤い線で示された関数fのグラフにfを適用しようとすると各x座標に対して矢印のようにf(x),f○f(x)を辿って値をプロットすることができます。1つ山の関数は2つ山になりさらに4つ、8つとなっていきます。
+
+![](img/folding_simple.png)
+Then さらに$Wv$を対角行列としてVとattention map Aの積を考えます。このとき図のようにAの要素もVと同様な形状をしていれば行列積によってVのグラフを折りたたむような出力が得られます。これはAの元になっているQの形状をKで引き伸ばすような処理によって得られます。
+(出力Zの水色の点がある行を計算したい場合Aの水色の行とVのそれぞれの列との内積を取ります。この場合Aの水色の行の非零要素は水色の点しかないので、その列数(横←→)と同じ行数に非零要素があるVの列(水色)との内積しか非零になる要素はなく、結果としてAの水色と同じ行、Vの水色と同じ列のZの要素のみが非零となる)
+![](img/attention.png)
+
+これによってattentionにおいて自己参照的な構造が得られることになります。Wqは単位行列でありKでその形をnxnに引き伸ばすようにすれば良さそうですがもともとのKey,Queryの意味付けと比べると消極的であるようにも見えます。別の言い方をするとattentionでは1回の繰り返しでより多くの自己参照をしていると言えます。関数マップにおけるεの調整もモデル内部で行っていると言えるかもしれません。
+
+上で挙げた例では各行の1つの要素のみが非零の場合のみを説明しましたが、複数の要素が非零の多価関数、確率分布関数(確率過程)を変換する写像と捉えることもできます。(Transformerでは確率分布の正規化に類似した処理をsoftmax,dでの割り算で行っています。)
+またここでの例では層ごとに同じ重みパラメーターを用いるものとしてGNN,関数マップとの類似性、等価性を見てきましたがattentionを用いたネットワークでは層ごとに異なるパラメーターを用いています。
+
 f and g corresponds to morphism, the functor is functional dynamics.
 In other formulation f,g are objects, functional dynamics itself is morphism and the functor is parametrize by $\epsilon$.
 By restricting the formular of FD linear interpolations as in the original paper, category theory can explation  its parameters $\epsilon$.
 Functor between FD and parameter $\epsilon$ is natual transformation. Yoneda's lemma $Nat(h_A,F)\simeq F(A)$ corresponds to this relation is 
 
- One of the interesting property of FD is hierachical structure of points. Fixed points are on diagonal line called type I, type II fixed points is depends of  type III fixed points refer to ...and so on.  [].
+One of the interesting property of FD is hierachical structure of points. Fixed points are on diagonal line called type I, type II fixed points is depends of  type III fixed points refer to ...and so on.  [].
+![](img/hierchical.png)
+
 This hierrachical structure is not merely analogy of the one of natural/programming languages but coreesponds to deduction or in-context learning process of transformers. As following figure, functional dynamics can generate self similar fractal shaped function by adding matrix operation as in attention mechanism. 
 The compsition of attention ($f\times f$) and MLP as operators makes self recuesivee fractal shaped function easily. Fig .  shows ssteps  to make make two identical map inside the region of s map. This fact also implies self similar structure of language related to folding mechanism of FD.
-
+![img/FMAP_INCURSIVE.png]()
 The original form of FD only consists of function apply( $\cdot$ ),addition (+) and multiplication of constant value $\epsilon$ this restrict related to logic structure which transformers can calculete as following chapter.
 
 ### Category Theory
@@ -106,9 +123,10 @@ Be aware with cardinality of exponential object is larger than the cardinality o
 
 Markov category(MC) is a modeling of probablistic calculation and statistical inference and induction. The object are probablistic distributions, the morphism are transition kernels between distributions. Generally MC is not CCC, 
 
+Topos is defined CCC which has .
+
 ### Linear Logic, Linear lambda calculus
 Linear logic is restriction of usual mathematical logic which only allows finite use of propositions during a deduction.
-Topos is CCC which has .
 
 operator $A \multimap B$ means is linear implication, which signifies "deriving a conclusion by consuming a premise exactly once".
 
