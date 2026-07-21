@@ -322,6 +322,88 @@ end KleisliLayer
 
 
 /-! ===================================================================
+    CLAIM 5.  The two roles of the attention matrix, as ONE functor.
+
+    `A ∈ Kl(D)(pos,pos)` acting as an operator on the value space is the action
+    ON MORPHISMS of a representation functor.  We give it in the form that needs
+    NO strength and is fully provable from the D-algebra laws:
+
+        F_V : (Kleisli D)ᵒᵖ ⥤ Type v ,
+        F_V(pos) = (pos ⟶ V),           -- value assignments
+        F_V(A)   = fun val ↦ A · val ,   -- value mixing  A·val = A ≫ D.map val ≫ 𝔼
+
+    This is the hom-set form of the correspondence `A ≃ (V ⊸ V)`: the kernel A is
+    literally sent to an operator on the value space, functorially in A.  It is
+    exactly the presheaf represented by the D-algebra `Valg` pulled back along the
+    Kleisli⟶Eilenberg–Moore comparison — hence functoriality is the algebra laws.
+
+    The internal (SMCC) upgrade  pos ↦ (pos ⊸ V),  A ↦ `kernelOp A`  is the
+    *internalization* of this presheaf; its existence and functoriality are the
+    representability that needs `Internalizes D` (a strength), the honest gap of
+    Claim 4b.  So: Claim 5 proves the functor at the Type level; Claim 4 supplies
+    its internalization modulo the strength.
+    =================================================================== -/
+section RepresentationFunctor
+variable (D : Monad C)
+
+/-- **The representation functor `F_V` (Type-valued), FULLY PROVED functorial.**
+    A probability kernel `A` is sent to the value-mixing operator on `pos ⟶ V`.
+    `map_id` uses the unit of the monad and of the algebra; `map_comp` uses the
+    multiplication, its naturality, and the algebra's associativity. No strength,
+    no `sorry`. -/
+def valuePresheaf (Valg : D.Algebra) : (Kleisli D)ᵒᵖ ⥤ Type v where
+  obj X := X.unop ⟶ Valg.A
+  map {X Y} A := fun val => A.unop ≫ (D : C ⥤ C).map val ≫ Valg.a
+  map_id X := by
+    funext val
+    simp only [unop_id]
+    -- Kleisli identity is the monad unit η; then η-naturality + algebra unit.
+    show D.η.app X.unop ≫ (D : C ⥤ C).map val ≫ Valg.a = val
+    rw [← Category.assoc, ← D.η.naturality val, Category.assoc, Valg.unit,
+        Category.comp_id]
+  map_comp {X Y Z} A B := by
+    funext val
+    -- opposite comp unops to reversed Kleisli comp
+    --   (A ≫ B).unop = B.unop ≫_Kl A.unop = B.unop ≫ D.map A.unop ≫ μ ;
+    -- expand D.map of the composite on the right, then μ-naturality + algebra assoc.
+    show (B.unop ≫ (D : C ⥤ C).map A.unop ≫ D.μ.app X.unop)
+            ≫ (D : C ⥤ C).map val ≫ Valg.a
+        = B.unop ≫ (D : C ⥤ C).map (A.unop ≫ (D : C ⥤ C).map val ≫ Valg.a) ≫ Valg.a
+    rw [Functor.map_comp, Functor.map_comp]
+    simp only [Category.assoc]
+    rw [D.μ.naturality_assoc, Valg.assoc]
+
+/-- **Functoriality made explicit: the kernel action respects Kleisli identity.**
+    `A = η` (the deterministic "stay put" kernel) acts as the identity operator. -/
+theorem valuePresheaf_map_id (Valg : D.Algebra) (X : (Kleisli D)ᵒᵖ) :
+    (valuePresheaf D Valg).map (𝟙 X) = id :=
+  (valuePresheaf D Valg).map_id X
+
+/-- **and respects Kleisli composition (Chapman–Kolmogorov ↦ operator comp).** -/
+theorem valuePresheaf_map_comp (Valg : D.Algebra) {X Y Z : (Kleisli D)ᵒᵖ}
+    (A : X ⟶ Y) (B : Y ⟶ Z) :
+    (valuePresheaf D Valg).map (A ≫ B)
+      = (valuePresheaf D Valg).map A ≫ (valuePresheaf D Valg).map B :=
+  (valuePresheaf D Valg).map_comp A B
+
+/-
+  Relation to the internal (SMCC) version (Claim 4).
+  ---------------------------------------------------
+  Post-composing `valuePresheaf` with the internalization `name : (pos ⟶ V) →
+  (𝟙 ⟶ pos ⊸ V)` turns each operator `F_V(A)` on the hom-set into an
+  endomorphism of the internal hom object `pos ⊸ V`, namely `kernelOp A`
+  (Claim 4b, `kernelOp_realizes`). That upgrade `(Kleisli D)ᵒᵖ ⥤ Type v  ⟹
+  (Kleisli D)ᵒᵖ ⥤ C` is the enriched/representable form and requires a strength
+  `Internalizes D`. Thus:
+     • Type-level representation functor  — PROVED here (Claim 5), no strength;
+     • its internalization to `pos ⊸ V`   — Claim 4b, modulo the strength.
+  Together they are the single functor whose action on morphisms is the second
+  categorical role of the attention matrix `A ≃ (V ⊸ V)`.
+-/
+
+end RepresentationFunctor
+
+/-! ===================================================================
     Instance remark.
     The abstract setting is realized by `C = ModuleCat k`:
       * `MonoidalCategory (ModuleCat k)`, `SymmetricCategory`, `MonoidalClosed`
