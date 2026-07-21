@@ -63,8 +63,7 @@ Layered transformers is usually called large language models (LLM). LLMs have in
 Function vector(FV) [] a concept embedded in LLM as a head of transformer. FV is portable among but layer of LLM.
 
 ### Functional Dynamics
-Functional dynamics (FD)[] is introduced by function of 1-dimentional function (metafunction).
-The original FD is define as following
+Functional dynamics (FD)[] is introduced by function of 1-dimentional function (metafunction). The original form FD is define as following
 
 $f_{t+1}(x)=(f_t\cdot f_t)(x) +\epsilon f_t(x)$
 
@@ -76,14 +75,16 @@ Generally, the dynamics of functions are governed by fixed points and hieralchy 
  Regarding a fnction as a graph drawn in 2D rectangle, function applicaton to other function ($f\cdot g$) is described as matrix multiplication. In case attention mechanism, f and g corespons to matrix, the non-zero value is  
 row is x -axis, column is y-axis graph.Then a matrix not only represent 1-dimentional function graph but 
 
-As a example $d=d_q=d_k=d_v$ for simplicity, x has only
-で簡単のため$d=d_q=d_k=d_v$とし、xは各行に非零の値を1列しか持たないような形とします。するとその要素は2次元平面に1次元関数のグラフを描いた形になります。下図のように赤い線で示された関数fのグラフにfを適用しようとすると各x座標に対して矢印のようにf(x),f○f(x)を辿って値をプロットすることができます。1つ山の関数は2つ山になりさらに4つ、8つとなっていきます。
+As a example $d=d_q=d_k=d_v$ for simplicity, x has only 1 nonzero value per one row. Then the elements of matrix looks a graph of 1 dimentional function of 2 dimentional region. When function f(red curve) is applied to f itself, one can plot $f(x)\cdot f(x)$ following f(x) value for each x coordinate. one peak function is converted to  2 peak function, 4 peak function ,8 peak ... and so on.
 
 ![](img/folding_simple.png)
-Then さらに$Wv$を対角行列としてVとattention map Aの積を考えます。このとき図のようにAの要素もVと同様な形状をしていれば行列積によってVのグラフを折りたたむような出力が得られます。これはAの元になっているQの形状をKで引き伸ばすような処理によって得られます。
+Then suppose $W$ as diagonal matrix,consider product of matrix V and attention map A, if the shape of elements of A is same as the ones of V, one can foldi graph of V by matrix product. This can be thoudht the product of  Q and K.
+ さらに$Wv$を対角行列としてVとattention map Aの積を考えます。このとき図のようにAの要素もVと同様な形状をしていれば行列積によってVのグラフを折りたたむような出力が得られます。
+ これはAの元になっているQの形状をKで引き伸ばすような処理によって得られます。
 (出力Zの水色の点がある行を計算したい場合Aの水色の行とVのそれぞれの列との内積を取ります。この場合Aの水色の行の非零要素は水色の点しかないので、その列数(横←→)と同じ行数に非零要素があるVの列(水色)との内積しか非零になる要素はなく、結果としてAの水色と同じ行、Vの水色と同じ列のZの要素のみが非零となる)
 ![](img/attention.png)
 
+The self reference structure can be achieved by this operation. $W_q$ is unit matrix
 これによってattentionにおいて自己参照的な構造が得られることになります。Wqは単位行列でありKでその形をnxnに引き伸ばすようにすれば良さそうですがもともとのKey,Queryの意味付けと比べると消極的であるようにも見えます。別の言い方をするとattentionでは1回の繰り返しでより多くの自己参照をしていると言えます。関数マップにおけるεの調整もモデル内部で行っていると言えるかもしれません。
 
 上で挙げた例では各行の1つの要素のみが非零の場合のみを説明しましたが、複数の要素が非零の多価関数、確率分布関数(確率過程)を変換する写像と捉えることもできます。(Transformerでは確率分布の正規化に類似した処理をsoftmax,dでの割り算で行っています。)
@@ -119,7 +120,7 @@ C @ C @ .
 There is another least restricted category called Symmetric Monoid Closed Category(SMCC). SMCC do not have diagonal morphism. Intuidively diagonal morphism and its dual is copy and delete operation. When logic and proof process changes called linear logic.
 This condition is common when the objects are vector space and morphisms are linear transformation because $X\times X=X^2$ is nonlinear. The category called $\bf{Vect}$.
 
-Be aware with cardinality of exponential object is larger than the cardinality of objects "Lawvere's fixed-point theorem"[].
+Be aware with cardinality of exponential object is larger than the cardinality of objects. Lawvere's fixed-point theorem[] says .
 
 Markov category(MC) is a modeling of probablistic calculation and statistical inference and induction. The object are probablistic distributions, the morphism are transition kernels between distributions. Generally MC is not CCC, 
 
@@ -154,14 +155,13 @@ but of output has linear relation. Not to destroy linear structure at softmax.
 composition of SMCC and Markov category
 The output of this category
 
-## The restriction of linear logic and its recorvery by residual connections
+## The restriction of linear logic is partiallyt recorved by residual connections
 Linear logic restricts using a proposition (or a fact) only once time during deduction process.
 This makes the efficiency of deduction per one layer lower,  but makes mutch simpler deduction program as in human programming using spesicif language like Rust[].
 
-## The total formular
+## The total formularation
 The main statement of this paper is drawn as attention matrix is 
 the data flow in a layer of transformer as composition of Markov category and SMCC is depicted as fig.
-$KL(D) \rightarrow (Vect, ) \rightarrow (Vect, ) \rightarrow (Vect, ) $
 
 $x \xrightarrow{W_q,W_k} (Q,K) \xrightarrow{softmax,carring} A \simeq Hom(X, \multimap Y) \xrightarrow{eval} C$
 
