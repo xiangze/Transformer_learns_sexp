@@ -1,0 +1,72 @@
+{
+  "exp1_separately_trained": {
+    "full": {
+      "r1": 1.0,
+      "r2": 1.0,
+      "r3": 1.0
+    },
+    "none": {
+      "r1": 0.1513671875,
+      "r2": 0.126953125,
+      "r3": 0.21875
+    },
+    "attn_only": {
+      "r1": 0.197265625,
+      "r2": 0.205078125,
+      "r3": 1.0
+    },
+    "mlp_only": {
+      "r1": 0.189453125,
+      "r2": 1.0,
+      "r3": 0.2021484375
+    }
+  },
+  "exp2_same_weights_alpha_sweep": {
+    "1.0": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "0.9": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "0.75": [
+      0.9541015625,
+      0.9404296875,
+      0.921875
+    ],
+    "0.5": [
+      0.177734375,
+      0.1552734375,
+      0.1240234375
+    ],
+    "0.25": [
+      0.1005859375,
+      0.0986328125,
+      0.09765625
+    ],
+    "0.0": [
+      0.0947265625,
+      0.0869140625,
+      0.099609375
+    ]
+  },
+  "config": {
+    "V": 10,
+    "k": 5,
+    "d": 48,
+    "L": 3,
+    "heads": 4,
+    "steps": 900,
+    "chance": 0.1,
+    "seeds": 1
+  },
+  "caveats": [
+    "exp1 partial-residual rows (attn_only/mlp_only) are single-seed and unstable; do not draw conclusions from them",
+    "predicted residual x reuse-count (r) interaction was NOT observed: none-config fails already at r=1",
+    "exp2 alpha sweep confounds additive-copy removal with activation-scale distribution shift (LayerNorm not recalibrated)",
+    "generated-program runtime/memory is NOT measured: no theoretical link to forward-pass resource structure"
+  ]
+}

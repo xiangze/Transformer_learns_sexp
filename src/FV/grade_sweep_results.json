@@ -1,0 +1,72 @@
+{
+  "task": "chained application: infer pi from k=4 examples, emit pi^1(s)..pi^r(s); scored on pi^r(s)",
+  "config": {
+    "V": 8,
+    "k": 4,
+    "d": 64,
+    "heads": 4,
+    "steps": 1800,
+    "chance": 0.125
+  },
+  "grid_all_position_loss": {
+    "r1_L1": {
+      "acc": 0.263671875,
+      "params": 51648
+    },
+    "r1_L2": {
+      "acc": 1.0,
+      "params": 101376
+    },
+    "r1_L4": {
+      "acc": 1.0,
+      "params": 200832
+    },
+    "r2_L2": {
+      "acc": 0.615234375,
+      "params": 101440
+    },
+    "r2_L4": {
+      "acc": 0.599609375,
+      "params": 200896
+    },
+    "r2_L1": {
+      "acc": 0.6162109375,
+      "params": 51712
+    }
+  },
+  "grid_final_only_loss": {
+    "r2_L2_d64_m4": {
+      "acc": 0.6298828125,
+      "params": 101440
+    },
+    "r4_L2_d64_m4": {
+      "acc": 0.7490234375,
+      "params": 101568
+    },
+    "r4_L4_d64_m4": {
+      "acc": 0.7724609375,
+      "params": 201024
+    },
+    "r4_L1_d64_m4": {
+      "acc": 0.5087890625,
+      "params": 51840
+    },
+    "r4_L1_d128_m8": {
+      "acc": 0.48046875,
+      "params": 333568
+    }
+  },
+  "findings": {
+    "depth_requirement_is_flat_in_r": "L>=2 needed regardless of r; required depth does NOT grow with r",
+    "r2_row_flat": "r=2: L=1 0.616, L=2 0.615/0.630, L=4 0.600 - no depth benefit",
+    "r4_row": "r=4: L=1 0.509, L=2 0.749, L=4 0.772 - jump at L=2 then saturates",
+    "width_control": "r=4: deep L=4 d=64 (201k par) = 0.772 vs shallow-wide L=1 d=128 m=8 (334k par) = 0.480; depth beats 1.66x more parameters",
+    "supervision_confound_ruled_out": "final-only loss reproduces all-position loss (0.630 vs 0.615 at r2_L2)"
+  },
+  "confounds": {
+    "cycle_shortcut": "r=4 scores HIGHER than r=2, inverting difficulty. Emitted prefix pi^1..pi^(r-1) is visible in context; for permutations on V=8 the orbit often revisits earlier elements, so larger r can be solved by cycle detection on the visible prefix rather than genuine reuse. The task therefore does not cleanly isolate reuse depth.",
+    "ceiling": "r>=2 rows plateau near 0.6-0.77, possibly a task/\u8bad\u7ec3 ceiling masking depth effects",
+    "single_seed": "one seed per cell; no variance estimate"
+  },
+  "verdict": "The predicted graded boundary r ~ c*L is NOT observed. Required depth is flat in r (L>=2). However the width control shows depth is not reducible to parameter count, so depth matters - just not as a per-reuse resource."
+}

@@ -1,0 +1,87 @@
+{
+  "pilot_config": {
+    "V": 8,
+    "k": 4,
+    "d": 64,
+    "steps": 800,
+    "seeds": 1,
+    "chance": 0.125,
+    "task": "hidden chain, permutation = k-cycle on shown symbols; loss on final token only"
+  },
+  "results": {
+    "r2_L2_h4_t1.0": {
+      "acc": 0.9833984375,
+      "params": 101632
+    },
+    "r3_L2_h4_t1.0": {
+      "acc": 0.998046875,
+      "params": 101696
+    },
+    "r1_L1_h4_t1.0": {
+      "acc": 0.333984375,
+      "params": 51840
+    },
+    "r2_L1_h4_t1.0": {
+      "acc": 0.32421875,
+      "params": 51904
+    },
+    "r3_L1_h4_t1.0": {
+      "acc": 0.330078125,
+      "params": 51968
+    },
+    "r3_L2_h1_t1.0": {
+      "acc": 0.234375,
+      "params": 101696
+    },
+    "r3_L2_h8_t1.0": {
+      "acc": 0.9990234375,
+      "params": 101696
+    },
+    "r1_L2_h1_t1.0": {
+      "acc": 1.0,
+      "params": 101568
+    },
+    "r2_L2_h1_t1.0": {
+      "acc": 1.0,
+      "params": 101632
+    },
+    "r3_L2_h2_t1.0": {
+      "acc": 0.59765625,
+      "params": 101696
+    },
+    "r4_L2_h2_t1.0": {
+      "acc": 1.0,
+      "params": 101760
+    }
+  },
+  "depth_finding": {
+    "L1": {
+      "r1": 0.334,
+      "r2": 0.324,
+      "r3": 0.33
+    },
+    "L2": {
+      "r1": 1.0,
+      "r2": 0.983,
+      "r3": 0.998
+    },
+    "reading": "depth is a FIXED threshold (L>=2); no interaction with r"
+  },
+  "head_finding": {
+    "h1": {
+      "r1": 1.0,
+      "r2": 1.0,
+      "r3": 0.234
+    },
+    "h2": {
+      "r3": 0.598,
+      "r4": 1.0
+    },
+    "h8": {
+      "r3": 0.999
+    },
+    "reading": "head count DOES interact with r: 1 head suffices at r<=2 but fails at r=3"
+  },
+  "caveat": "h2 gave r3=0.598 but r4=1.000 (non-monotone) on a single seed -> needs multiple seeds to confirm; this is the main thing the GPU run must settle",
+  "verdict_pilot": "supports (C) over (A)/(B): the r-dependent resource sits in attention capacity, not depth. NOT yet conclusive (1 seed, small grid)."
+}
