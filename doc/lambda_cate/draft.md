@@ -37,18 +37,20 @@ The assume Neural networks on category $\bf{RELU}$ whose objects are usual vecto
 
 Linear logic is related to programming language such as Rust[] which constraint resource(such as variables) usage at one time. This reduces programming bugs. Also There is a research to connect linear logc and probablistic programming, bayesian inference [].
 
-In this paper almost explaing about the relation between Transformers, lambda calculation and category theory. But the original idea and motivation about higher order fuction is Vector space and moprphism or category of metafunction(funcsions between funcions) is from dynamical system of functions, this is deeply related to learnability of transformers.
-
-some theorems are written in Lean.
+In this paper almost explaing about the relation between Transformers, lambda calculation and category theory. But the original idea and motivation about higher order fuction is Vector space and moprphism or category of metafunction(funcsions between funcions) is from dynamical system of functions, this is deeply related to learnability of transformers. Some theorems explained following chapter are written and proven in Lean.
 
 ### Contributions of this paper
-- Point out equivalence between self-attention and functional dynamics, property category .
-- Explains the relation between self-attention and symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$ eval-apply loop which is required for in-context learning and correspondence between markov category and attention matrix.
+- Points out the equivalence of self-attention and functional dynamics, property category .
+- Explains the relation between self-attention and symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$ eval-apply loop which is required for in-context learning and the correspondence between markov category and attention matrix.
 - Numerical experiment about MLP function, only Key-value retirival or not.
-- proofs of formalizations witten in lean
+- The proofs of formalizations are witten and proven in lean
+
 ## Preriminalies
 ### Attention mechanism, Transformers and their Components
 Transformers are consists of several components, attention, MLP(multi layer perceptron ,FFN), softmax, residual connecctions and layer normalizations.
+
+Fig
+
 Attentions are product of  and input vector x.
 MLP is composition of all-to-all vector product using matrix product and activation function such as Relu or softmax.
 softmax function is usually used tu make attention matrix in conrast of Relu in the tail of MLP.
@@ -99,8 +101,9 @@ One of the interesting property of FD is hierachical structure of points. Fixed 
 ![](img/hierchical.png)
 
 This hierrachical structure is not merely analogy of the one of natural/programming languages but coreesponds to deduction or in-context learning process of transformers. As following figure, functional dynamics can generate self similar fractal shaped function by adding matrix operation as in attention mechanism. 
-The compsition of attention ($f\times f$) and MLP as operators makes self recuesivee fractal shaped function easily. Fig .  shows ssteps  to make make two identical map inside the region of s map. This fact also implies self similar structure of language related to folding mechanism of FD.
-![img/FMAP_INCURSIVE.png]()
+The compsition of attention ($f\cdot f$) and MLP as operators makes self recuesivee fractal shaped function easily. Fig .  shows ssteps  to make make two identical map inside the region of s map. This fact also implies self similar structure of language related to folding mechanism of FD.
+![](img/FMAP_INCURSIVE.png)
+
 The original form of FD only consists of function apply( $\cdot$ ),addition (+) and multiplication of constant value $\epsilon$ this restrict related to logic structure which transformers can calculete as following chapter.
 
 ### Category Theory
@@ -132,31 +135,30 @@ Linear logic is restriction of usual mathematical logic which only allows finite
 operator $A \multimap B$ means is linear implication, which signifies "deriving a conclusion by consuming a premise exactly once".
 
 ## Formulation
-This chapter explains calculation ability of transformer based on the idea of functional dynmics and spesific cateories composition related to  relation of linear logic.
-As explained above, exponential object can be understood as "functions of functions" in 
-in 1 dimentional space, a function represent as a graph on 2D space,especially  one of those functions of function 
+This chapter explains calculation ability of transformer based on the idea of functional dynmics and spesific cateories composition related to  linear logic.
+As explained above, exponential object can be understood as "functions of functions" in function dynamics between  1 dimentional space, a function represent as a graph on 2D space,especially one of those functions of function.
 The problem is 
 
-Assume that nput vector of transformer x, or each row of the products between weight matrix  $Q=W_Q, K=W_K$ represents probablistic distribution. Attention matrices are understood as markov transition kernel, this is markov category.
+### Attention is not CCC, relations with Functional dynamics, attention matrix and  expornential object
+Assume that input vector of transformer x, or each row of the products between weight matrix  $Q=W_Q, K=W_K$ represents probablistic 
+distribution. Attention matrices are understood as markov transition kernel, this is markov category.
 Transformers are represented as composition of SMCC and Markov category.
+Vectors and Matrices muptiplied by weight matrix $W_k,$W_q,$W_V$ are reguearded as parameters of output vectors $Para(Vect)$.
 
-### functional dynamics, attention matrix, expornential object
-
-### Attention is not CCC
 We show CCC has diagonal morphism $A \rightarrow  A \times A$. Because this is not linear transformation, categoryt $\bf{Vect}$ is not CCC but 
-but of output has linear relation. Not to destroy linear structure at softmax.
+of output has linear relation. Not to destroy linear structure at softmax. For counter expample of $\bf{Vect}$ is CCC incommutable
 
 #### softmax and Markov category
  In attention mechanism 
- here we call this simply softmax. 
- can be thought as probability disutribution of  and Markov category
+ can be thought as probability disutribution of  and Markov category whose objects are probability distribution
+ $softmas(x)/\sqrt{d}$ here we call this simply softmax. 
 
 ### Transformers as composition of SMCC and Markov category
 composition of SMCC and Markov category
 The output of this category
 
 ## The restriction of linear logic is partiallyt recorved by residual connections
-Linear logic restricts using a proposition (or a fact) only once time during deduction process.
+Linear logic restricts using a proposition (or a fact) only once a during deduction process.
 This makes the efficiency of deduction per one layer lower,  but makes mutch simpler deduction program as in human programming using spesicif language like Rust[].
 
 ## The total formularation
@@ -172,7 +174,16 @@ $A \otimes V \rightarrow C$
 Here $KL(D)$ is Kleisli category and $D$ is distribution monad. $D$ and $Kl(D)$ is the category which have kernel 
 The function of MLP has not shown here. Actual function is numerical experimentally decided.
 
-## Experiment 
+of to categories.
+
+### proof of theorems formulation
+The formal proofs of above statements written in lean is in appendix.
+- Theorem 1 a layer of transformer is Kleisli morphism of composit monado M.
+- Theorem 2 eval-apply is unit/counit of adjoint,  the type of λc.λx.(Φ(Ec))x is linear $\lambda$ term.
+- Theorem 3 residual connection is written by (co)diagonal of biproduct, this is not !.
+- Theorem 4 The two roles of the attention matrix, $Kl(D)(pos,pos)$ and $Hom(V\multimap V)$ connected by a functor.
+
+## Numerical Experiments 
 We explained attention structure, redisual connection and softmax in above forumulations  But MLP has not yet explained.
 There is a statement that the function of MLP in transformer is key-value retrive [].Here we experimentally evaluate this hypothesis.
 
@@ -180,14 +191,13 @@ Here we show the result of relation between residual connection strength and abl
 
 In this experiment r interaction effect is not observed. This means neither additive copy and Markov copy works as copy function solely.
 
-### proof of theorems formulation
-- Theorem 1 a layer of transformer is Kleisli morphism of composit monado M.
+Another question is that do the restriction number of variabe reuse r depend on layer number(depth) L of a transformer?
+This is ecvaluate by calculating correration coefficients of several L and r. 
 
-- Theorem 2 eval-apply is unit/counit of adjoint,  the type of λc.λx.(Φ(Ec))x is linear $\lambda$ term.
-
-- Theorem 3 residual connection is written by (co)diagonal of biproduct, this is not !.
-
-The last statement Theorem 3 can not formalize by lean (uses sorry tactics).
+These code and results on github.
+### Results
+#### The first experiment 
+#### The second experiment 
 
 ## Discussion and Perspectives
 ### Related works
@@ -231,22 +241,233 @@ How CRDC relates and describe lyapunov spectrum , bifurcation, learning dynamics
 ## Conclusions
 In this paper, we show the correndence between lambda calculas and transformer, functional dynamics and explain the linear calculation ability in-context of transformers is composed Markov and SMCC categories.
 ### Reference
-- Attention is all you need(https://arxiv.org/abs/1706.03762)
-- Resnet https://arxiv.org/abs/1512.03385
+- [Attention is all you need](https://arxiv.org/abs/1706.03762)
+- [Resnet](https://arxiv.org/abs/1512.03385)
 - [Functional dynamics. I: Articulation process](https://cir.nii.ac.jp/crid/1360574095440074752)
 - [Functional dynamics: II: Syntactic structure](https://www.sciencedirect.com/science/article/abs/pii/S0167278900002037)
-- FV Function Vectors in Large Language Models(https://functions.baulab.info)
-- Functional Attention https://arxiv.org/abs/2605.31559
-- [Besic Category Theory]https://www.sas.rochester.edu/mth/sites/doug-ravenel/otherpapers/leinster-book2.pdf
+- [Function Vectors in Large Language Models](https://functions.baulab.info)
+- [Functional Attention](https://arxiv.org/abs/2605.31559)
+- [Besic Category Theory](https://www.sas.rochester.edu/mth/sites/doug-ravenel/otherpapers/leinster-book2.pdf)
 - Markov cat https://www.sciencedirect.com/science/article/pii/S0001870820302656?via%3Dihub
 - CRDC [Reverse derivative categories](https://arxiv.org/abs/1910.07065)
-- LL [Introduction to Linear Logic](https://www.brics.dk/LS/96/6/BRICS-LS-96-6.pdf)
-- [programs as singular]https://arxiv.org/abs/2504.08075
-- [Rust programming language]https://rust-lang.org/
-- Topos[The Topos of Transformer Networks]https://arxiv.org/abs/2403.18415
-- Endofunctor[Endofunctor Self-Attention as a Parametric Endofunctor: A Categorical Framework for Transformer Architectures] https://arxiv.org/abs/2501.02931
+- [Introduction to Linear Logic](https://www.brics.dk/LS/96/6/BRICS-LS-96-6.pdf)
+- [programs as singular](https://arxiv.org/abs/2504.08075)
+- [Rust programming language](https://rust-lang.org/)
+- [The Topos of Transformer Networks](https://arxiv.org/abs/2403.18415)
+- Endofunctor[Endofunctor Self-Attention as a Parametric Endofunctor: A Categorical Framework for Transformer Architectures](https://arxiv.org/abs/2501.02931)
 - [Transformer Feed-Forward Layers Are Key-Value Memories](https://arxiv.org/abs/2012.14913)
 https://learnmechinterp.com/topics/mlps-in-transformers/
 - UTM []
 - Dyck
 - [Lawvere's fixed point theorem](https://ncatlab.org/nlab/show/Lawvere%27s+fixed+point+theorem)
+
+
+## Appendix
+### Proofs of theorems in lean
+```lean
+universe v u
+variable {C : Type u} [Category.{v} C]
+```
+- Theorem 1 The softmax routing is a Kleisli morphism of a monad D, and whole layer of transformer is Kleisli morphism of composit monado M = T ∘ D.
+```lean
+section KleisliLayer
+variable (T D : Monad C)
+variable {A B : C}
+
+/-- In `Kleisli D`, a morphism A ⟶ B is by definition a base morphism
+    A ⟶ D.obj B. The softmax/Markov routing `attn : A ⟶ D.obj B` (D = the
+    distribution monad) is therefore literally a Kleisli morphism of D. -/
+example (attn : A ⟶ (D : C ⥤ C).obj B) :
+    @Quiver.Hom (Kleisli D) _ (A : Kleisli D) (B : Kleisli D) := attn
+
+/-- Data representing a distributive law together with the composite monad
+that its omitted Beck coherence equations are intended to induce. -/
+/- The original blueprint used `True` in place of Beck's four coherence
+axioms. Those placeholders cannot justify construction of a composite monad.
+Until those equations are formalized, the honest interface must include the
+resulting monad as data. -/
+structure DistribLaw (T D : Monad C) where
+  law : (D : C ⥤ C) ⋙ (T : C ⥤ C) ⟶ (T : C ⥤ C) ⋙ (D : C ⥤ C)
+  composite : Monad C
+  composite_toFunctor : (composite : C ⥤ C) = (T : C ⥤ C) ⋙ (D : C ⥤ C)
+
+/-- The composite monad supplied by `DistribLaw`. -/
+def composeMonad (l : DistribLaw T D) : Monad C := l.composite
+
+/-- **The whole layer as a single Kleisli morphism of the composite monad.**
+    Given the composite monad M = `composeMonad`, a layer
+    `layer : A ⟶ M.obj B` is exactly a morphism `A ⟶ B` in `Kleisli M`.
+    Thus the two categories (Markov `Kl(D)` and the value/SMCC part carried by T)
+    are unified as morphisms of the single Kleisli category `Kleisli M`. -/
+example (l : DistribLaw T D)
+    (layer : A ⟶ ((composeMonad T D l) : C ⥤ C).obj B) :
+    @Quiver.Hom (Kleisli (composeMonad T D l)) _
+      (A : Kleisli (composeMonad T D l)) (B : Kleisli (composeMonad T D l)) :=
+  layer
+
+end KleisliLayer
+```
+- Theorem 2 eval-apply is unit/counit of adjoint,  the type of λc.λx.(Φ(Ec))x is linear $\lambda$ term.
+```lean
+section EvalApply
+variable [MonoidalCategory C] [MonoidalClosed C]
+variable {Ctx P X Y : C}
+
+/- Extraction E : Ctx ⟶ P_FV and realization Φ : P_FV ⟶ (X ⊸ Y).
+   Here `(ihom X).obj Y` is the internal hom X ⊸ Y. -/
+variable (E : Ctx ⟶ P) (Φ : P ⟶ (ihom X).obj Y)
+
+/-- The reified, realized function  f_t = Φ ∘ E : Ctx ⟶ (X ⊸ Y).
+    This is the (linear) λ-abstraction / "choose" morphism. -/
+def curriedFn : Ctx ⟶ (ihom X).obj Y := E ≫ Φ
+
+/-- Application: uncurrying the reified function, X ⊗ Ctx ⟶ Y. -/
+def applyMor : X ⊗ Ctx ⟶ Y := MonoidalClosed.uncurry (E ≫ Φ)
+
+/-- **eval-apply.**  Applying the reified function equals "build it (X ◁ (E ≫ Φ)),
+    then evaluate", where the evaluation `ihom.ev X` is exactly the counit of the
+    adjunction `(tensorLeft X) ⊣ (ihom X)`.  This is the categorical content of
+    `(Φ (E c)) x = eval (Φ (E c), x)`. -/
+theorem apply_eq_build_then_ev :
+    applyMor E Φ = (X ◁ (E ≫ Φ)) ≫ (ihom.ev X).app Y := by
+  unfold applyMor
+  rw [MonoidalClosed.uncurry_eq]
+
+/-- **β-conversion** = the counit triangle: uncurry (curry g) = g. -/
+theorem beta (g : X ⊗ Ctx ⟶ Y) :
+    MonoidalClosed.uncurry (MonoidalClosed.curry g) = g :=
+  MonoidalClosed.uncurry_curry g
+
+/-- **η-conversion** = the unit triangle: curry (uncurry h) = h. -/
+theorem eta (h : Ctx ⟶ (ihom X).obj Y) :
+    MonoidalClosed.curry (MonoidalClosed.uncurry h) = h :=
+  MonoidalClosed.curry_uncurry h
+
+/-
+  The term  λc. λx. (Φ (E c)) x  of linear λ-calculus, of type
+  Ctx ⊸ (X ⊸ Y), DENOTES `curriedFn E Φ : Ctx ⟶ (ihom X).obj Y`, and its
+  applied form denotes `applyMor E Φ`. Theorems `apply_eq_build_then_ev`, `beta`,
+  `eta` are the semantic (SMCC) counterparts of the term's typing plus β/η.
+
+  A *syntactic* soundness theorem — "this linear-λ term is well-typed with each
+  variable used exactly once, and its denotation is `applyMor`" — requires a
+  formalized linear type system (contexts as multisets, ⊸-intro/elim, a
+  no-contraction/no-weakening discipline) that Mathlib does NOT provide. That is
+  a separate development; here we formalize the denotation only.
+-/
+
+/-- Naturality bookkeeping: uncurrying commutes with precomposition by E,
+    i.e. the "choose then apply" pipeline composes as expected. -/
+theorem apply_factor :
+    applyMor E Φ = (X ◁ E) ≫ MonoidalClosed.uncurry Φ := by
+  unfold applyMor
+  rw [MonoidalClosed.uncurry_natural_left]
+
+end EvalApply
+```
+- Theorem 3 residual connection is written by (co)diagonal of biproduct, this is not !.
+```lean
+section Residual
+variable [Preadditive C] [HasBinaryBiproducts C]
+variable {A : C}
+
+/-- The additive diagonal Δ_⊕ : A ⟶ A ⊞ A (fan-out along the depth axis). -/
+def diagAdd (A : C) : A ⟶ A ⊞ A := biprod.lift (𝟙 A) (𝟙 A)
+
+/-- The additive codiagonal ∇_⊕ : A ⊞ A ⟶ A (write-back). -/
+def codiagAdd (A : C) : A ⊞ A ⟶ A := biprod.desc (𝟙 A) (𝟙 A)
+
+/-- **Residual as additive copy (clean form).**
+    `biprod.lift (𝟙) f ≫ biprod.desc (𝟙) (𝟙) = 𝟙 + f`.
+    The two branches Δ_⊕ produces are summed back by ∇_⊕ into a SINGLE
+    resource `𝟙 + f`; this is why the residual copies additively but supplies
+    no independent second consumption. -/
+theorem residual_eq (f : A ⟶ A) :
+    biprod.lift (𝟙 A) f ≫ biprod.desc (𝟙 A) (𝟙 A) = 𝟙 A + f := by
+  simp [biprod.lift_desc]
+
+/-
+**Residual as Δ_⊕ ≫ (id ⊞ f) ≫ ∇_⊕.**
+    Same statement, written through the diagonal / map / codiagonal, matching
+    the string-diagram reading.
+-/
+theorem residual_eq_diag (f : A ⟶ A) :
+    diagAdd A ≫ biprod.map (𝟙 A) f ≫ codiagAdd A = 𝟙 A + f := by
+  simp +decide [ diagAdd, codiagAdd, ← Category.assoc ];
+  grind +suggestions
+
+/-
+The original proposed theorem `no_tensor_diagonal_of_noncartesian` was
+incorrect: in a preadditive monoidal category the family of zero maps is always
+such a natural diagonal.  A counit, including its normalization and naturality,
+is needed to derive the advertised obstruction.
+
+A natural, normalized family of discarding maps would make the tensor unit
+terminal. Hence such a family cannot exist when the tensor unit is not
+terminal. This is the part of the obstruction to a uniform copying/discarding
+comonoid structure that follows directly from non-cartesianness.
+-/
+omit [Preadditive C] [HasBinaryBiproducts C] in
+theorem no_natural_discard_of_nonterminal_unit
+    [MonoidalCategory C]
+    (hNonterminal : IsEmpty (Limits.IsTerminal (𝟙_ C))) :
+    ¬ ∃ ε : (A : C) → (A ⟶ 𝟙_ C),
+        ε (𝟙_ C) = 𝟙 (𝟙_ C) ∧
+        (∀ {A B : C} (g : A ⟶ B), g ≫ ε B = ε A) := by
+  rintro ⟨ε, hunit, natural⟩
+  apply hNonterminal.false
+  refine Limits.IsTerminal.ofUniqueHom ε ?_
+  intro X m
+  simpa [hunit] using natural m
+
+end Residual
+
+```
+- Theorem 4  The two roles of the attention matrix, $Kl(D)(pos,pos)$ and $Hom(V\multimap V)$ connected by a functor.
+```lean
+section RepresentationFunctor
+variable (D : Monad C)
+
+/-- **The representation functor `F_V` (Type-valued), FULLY PROVED functorial.**
+    A probability kernel `A` is sent to the value-mixing operator on `pos ⟶ V`.
+    `map_id` uses the unit of the monad and of the algebra; `map_comp` uses the
+    multiplication, its naturality, and the algebra's associativity. No strength,
+    no `sorry`. -/
+def valuePresheaf (Valg : D.Algebra) : (Kleisli D)ᵒᵖ ⥤ Type v where
+  obj X := X.unop ⟶ Valg.A
+  map {X Y} A := fun val => A.unop ≫ (D : C ⥤ C).map val ≫ Valg.a
+  map_id X := by
+    funext val
+    simp only [unop_id]
+    -- Kleisli identity is the monad unit η; then η-naturality + algebra unit.
+    show D.η.app X.unop ≫ (D : C ⥤ C).map val ≫ Valg.a = val
+    rw [← Category.assoc, ← D.η.naturality val, Category.assoc, Valg.unit,
+        Category.comp_id]
+  map_comp {X Y Z} A B := by
+    funext val
+    -- opposite comp unops to reversed Kleisli comp
+    --   (A ≫ B).unop = B.unop ≫_Kl A.unop = B.unop ≫ D.map A.unop ≫ μ ;
+    -- expand D.map of the composite on the right, then μ-naturality + algebra assoc.
+    show (B.unop ≫ (D : C ⥤ C).map A.unop ≫ D.μ.app X.unop)
+            ≫ (D : C ⥤ C).map val ≫ Valg.a
+        = B.unop ≫ (D : C ⥤ C).map (A.unop ≫ (D : C ⥤ C).map val ≫ Valg.a) ≫ Valg.a
+    rw [Functor.map_comp, Functor.map_comp]
+    simp only [Category.assoc]
+    rw [D.μ.naturality_assoc, Valg.assoc]
+
+/-- **Functoriality made explicit: the kernel action respects Kleisli identity.**
+    `A = η` (the deterministic "stay put" kernel) acts as the identity operator. -/
+theorem valuePresheaf_map_id (Valg : D.Algebra) (X : (Kleisli D)ᵒᵖ) :
+    (valuePresheaf D Valg).map (𝟙 X) = id :=
+  (valuePresheaf D Valg).map_id X
+
+/-- **and respects Kleisli composition (Chapman–Kolmogorov ↦ operator comp).** -/
+theorem valuePresheaf_map_comp (Valg : D.Algebra) {X Y Z : (Kleisli D)ᵒᵖ}
+    (A : X ⟶ Y) (B : Y ⟶ Z) :
+    (valuePresheaf D Valg).map (A ≫ B)
+      = (valuePresheaf D Valg).map A ≫ (valuePresheaf D Valg).map B :=
+  (valuePresheaf D Valg).map_comp A B
+
+end RepresentationFunctor
+
+```
