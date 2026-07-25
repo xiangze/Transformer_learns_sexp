@@ -127,7 +127,16 @@ Be aware with cardinality of exponential object is larger than the cardinality o
 
 Markov category(MC) is a modeling of probablistic calculation and statistical inference and induction. The object are probablistic distributions, the morphism are transition kernels between distributions. Generally MC is not CCC, 
 
-Topos is defined CCC which has .
+Topos is defined CCC which has subobject classifiers $Sub: C^{op}\rightarrow Set$.
+
+Yoneda's lemma explains the relation between the behavior and parameters FD.
+According to Yoneda's lemma, for a category C, and a functor from C to othre category D.
+$F(x) \leftrightarrow , x \in C, F: C^{op}$
+C^{op}$ is the opposite category of C which morphics is reverse directino to C.
+
+Hom functor $Hom_C(-,X)$ maps object A to a set of morphisms $Hom_C(A,X), morphism f: to set of morphism of morphism .
+There are natural transformations $Nat(h_X,h_Y) (h_X \rightarrow h_Y)$. Yoneda's lemma states for any functor F $Nat(h_X,F) \simeq F(X) $.
+This means a natrual transformation between FD F and G corresponds to a specific parameter. In case of linear interpolation FD, this is parameter $epsilon$. Here we identify attention matrix dynamics along layers is functional dynamics. The change of attention matrix dynamics along to layers can be said natural transformation and there is a specific object(values) maped by a functor F.
 
 ### Linear Logic, Linear lambda calculus
 Linear logic is restriction of usual mathematical logic which only allows finite use of propositions during a deduction.
@@ -135,9 +144,9 @@ Linear logic is restriction of usual mathematical logic which only allows finite
 operator $A \multimap B$ means is linear implication, which signifies "deriving a conclusion by consuming a premise exactly once".
 
 ## Formulation
-This chapter explains calculation ability of transformer based on the idea of functional dynmics and spesific cateories composition related to  linear logic.
-As explained above, exponential object can be understood as "functions of functions" in function dynamics between  1 dimentional space, a function represent as a graph on 2D space,especially one of those functions of function.
-The problem is 
+This chapter explains calculation ability of transformer based on the idea of functional dynmics and composition of specific cateories related to linear logic. 
+As explained above, exponential object can be understood as "functions of functions" in function dynamics between 1-dimentional space i.e. infinite-dimentional vector space, a function represent as a graph on 2D space,especially one of those functions of function.
+At the infinite limit of number of element of attention matrix, it becomes 2D space.
 
 ### Attention is not CCC, relations with Functional dynamics, attention matrix and  expornential object
 Assume that input vector of transformer x, or each row of the products between weight matrix  $Q=W_Q, K=W_K$ represents probablistic 
@@ -155,13 +164,13 @@ of output has linear relation. Not to destroy linear structure at softmax. For c
 
 ### Transformers as composition of SMCC and Markov category
 composition of SMCC and Markov category
-The output of this category
+The output of this category is
 
 ## The restriction of linear logic is partiallyt recorved by residual connections
 Linear logic restricts using a proposition (or a fact) only once a during deduction process.
 This makes the efficiency of deduction per one layer lower,  but makes mutch simpler deduction program as in human programming using spesicif language like Rust[].
 
-## The total formularation
+## The total formulation
 The main statement of this paper is drawn as attention matrix is 
 the data flow in a layer of transformer as composition of Markov category and SMCC is depicted as fig.
 
@@ -171,12 +180,12 @@ $ Kl(D)(pos,pos) \ni A \simeq (internal)Hom(V\multimap V)$
 
 $A \otimes V \rightarrow C$
 
-Here $KL(D)$ is Kleisli category and $D$ is distribution monad. $D$ and $Kl(D)$ is the category which have kernel 
+Here $KL(D)$ is Kleisli category and $D$ is distribution monad. $D$ and $Kl(D)$ is the category which have kernel as morphism.
 The function of MLP has not shown here. Actual function is numerical experimentally decided.
 
 of to categories.
 
-### proof of theorems formulation
+### proofs of theorems formulation
 The formal proofs of above statements written in lean is in appendix.
 - Theorem 1 a layer of transformer is Kleisli morphism of composit monado M.
 - Theorem 2 eval-apply is unit/counit of adjoint,  the type of λc.λx.(Φ(Ec))x is linear $\lambda$ term.
@@ -223,6 +232,10 @@ One-step calculation ability is also important question. If complex lambda formu
 
 Multi Head attentions (MHA) are also key part of transformer performance. But it is not discussed and evaluated well in this paper. Pararlell architecture may achieved different values assignment to same expression and reduction. MLPs after concat work as selecting and merging the results, which could be decided this assumption is correct or not experimentally. Mixture-of-expert is same as MHA but larger structure.
 
+Empirical experiments and direct explation of transformer language processing ability corresponds to the architecutuer is important research region.
+Several studies[][] are using S-expression or Dyck language to hierachical language and its limitation.
+detectiong and processing 
+meta functions descripted in usual programming language like S-expression is future task.
 ### Learnability
 The success of transformers is not only higher order function programmability and in-context learning, but learnablity and avoiding local minimum, overfitting are also significant properties and affect to large application area industries.
 For example, Edge of chaos hypothesis states highset learning speed is achieved when learning rate is on critical point[].
@@ -257,17 +270,39 @@ In this paper, we show the correndence between lambda calculas and transformer, 
 - Endofunctor[Endofunctor Self-Attention as a Parametric Endofunctor: A Categorical Framework for Transformer Architectures](https://arxiv.org/abs/2501.02931)
 - [Transformer Feed-Forward Layers Are Key-Value Memories](https://arxiv.org/abs/2012.14913)
 https://learnmechinterp.com/topics/mlps-in-transformers/
-- UTM []
-- Dyck
+- [Universal Transformers](http://arxiv.org/abs/1807.03819)
+- [UTM critics](https://lifeiscomputation.com/transformers-are-not-turing-complete/)
+- [Self-Attention Networks Can Process Bounded Hierarchical Languages](https://arxiv.org/abs/2105.11115)
 - [Lawvere's fixed point theorem](https://ncatlab.org/nlab/show/Lawvere%27s+fixed+point+theorem)
 
+## Aknowledgement
+We thank very useful discussion with Dr. Kunihiko Kaneko and Dr. Kai Nakaishi.
 
 ## Appendix
 ### Proofs of theorems in lean
+Common sector
 ```lean
+import Mathlib.CategoryTheory.Monoidal.Closed.FunctorCategory.Basic
+import Mathlib.CategoryTheory.Monoidal.Closed.Basic
+import Mathlib.CategoryTheory.Monoidal.Braided.Basic
+import Mathlib.CategoryTheory.Limits.Shapes.BinaryBiproducts
+import Mathlib.CategoryTheory.Preadditive.Biproducts
+import Mathlib.CategoryTheory.Limits.Shapes.IsTerminal
+import Mathlib.CategoryTheory.Monad.Kleisli
+import Mathlib.CategoryTheory.Monad.Basic
+import Mathlib.CategoryTheory.Monad.Algebra
+import Mathlib.CategoryTheory.Adjunction.Basic
+
+open CategoryTheory CategoryTheory.MonoidalCategory CategoryTheory.Limits
+
+noncomputable section
+namespace TransformerCat
+
 universe v u
 variable {C : Type u} [Category.{v} C]
 ```
+"noncomputable section" means following theorems do not caluculated values as functions.
+
 - Theorem 1 The softmax routing is a Kleisli morphism of a monad D, and whole layer of transformer is Kleisli morphism of composit monado M = T ∘ D.
 ```lean
 section KleisliLayer
