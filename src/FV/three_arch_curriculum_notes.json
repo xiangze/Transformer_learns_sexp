@@ -1,0 +1,18 @@
+{
+  "smoke_test_cpu": {
+    "config": "V=5,Ls=[1,2],ns=[2,4,8],500 steps,1 seed",
+    "tf_L1_nstar": 2,
+    "tf_L2_nstar": 4,
+    "rnn_nstar": ">=8 (full ladder)",
+    "ssm_nstar": 0,
+    "reading": "even this tiny run shows the predicted 3-way split: TF boundary doubles L1->L2 (2->4, log-grade signature), RNN FLAT-HIGH (true !), SSM FLAT-LOW (TC0). Not yet a fit (TF has only 2 L points; need >=3)."
+  },
+  "production_command": "python three_arch_curriculum.py --V 5 --Ls 1 2 3 4 --ns 2 3 4 6 8 12 16 24 32 48 64 --kinds tf rnn ssm --seeds 3 --d 256 --steps 3000",
+  "decision_rule": "TF EXPONENTIAL (n*~c*2^L) + RNN FLAT-HIGH + SSM FLAT-LOW  =>  shared TC0 ceiling, but route to it set by each arch forward category (adjunction placement). TF LINEAR instead would refute the associative-scan/log-grade reading.",
+  "features": [
+    "shared curriculum across all 3 archs (removes trainability confound confirmed by rnn_calib)",
+    "per-(kind,L) n* via warm-started n-ladder with early stop",
+    "automatic linear-vs-exponential fit with verdict",
+    "resumable checkpoint, GPU AMP/bf16, multi-seed median"
+  ]
+}
