@@ -10,15 +10,17 @@ And we state residual connection, another component of transformers "copy" data 
 
 Moreover we show MLP(Multi layer perceptron) has a function to retrive information from key-value database experimentally.
 
-Because softmax is applied attention matrix, we can define Markov category as the object is probablistic distribution function,
-the morphism is converison like Markov kernel.
+Because softmax is applied attention matrix, we can define Markov category as the object is probablistic distribution function, the morphism is converison like Markov kernel.
 
-As a result, one layer of a Transformer composition of Markov category and SMCC caluculate linear lambda calculation, and the property can extend nonlinear conversion such as softmax.
+The main statement of this paper is drawn as transformers are mutial adjoint between piecewise-linear, Cartesian category corresponds to MLP and linear category corresponds to attention, expecially an attention matrix is a composition of Markov category and SMCC.
 
-Related numerical experiments and theorem formulation automatic prooves are provides.
+This category theoretical structure expresses the type of representaiton ability enough, specific learned network parameter values also affects the performance of network but limited as evaluated by numerical experiments.
+
+Numerical experiments show the recovery of restriction of linear logic in attention mechanism and  which part of transformer affects outstandin performance of transformer.
+Related numerical experiments and theorem formulation for automatic prooves are provided https://github.com/xiangze/Transformer_learns_sexp/tree/master/src/FV and https://github.com/xiangze/Transformer_learns_sexp/tree/master/proof 
 
 Keywords:
-category theory, Transformers, sefl-attention, function vectors, function dynamical, dynamical systems, linear λ-calculus, Markov categories
+category theory, Transformers, sefl-attention, function vectors, function dynamical, dynamical systems, linear $\lambda$-calculus, Markov categories
 
 ----
 
@@ -80,22 +82,22 @@ row is x -axis, column is y-axis graph.Then a matrix not only represent 1-diment
 As a example $d=d_q=d_k=d_v$ for simplicity, x has only 1 nonzero value per one row. Then the elements of matrix looks a graph of 1 dimentional function of 2 dimentional region. When function f(red curve) is applied to f itself, one can plot $f(x)\cdot f(x)$ following f(x) value for each x coordinate. one peak function is converted to  2 peak function, 4 peak function ,8 peak ... and so on.
 
 ![](img/folding_simple.png)
-Then suppose $W$ as diagonal matrix,consider product of matrix V and attention map A, if the shape of elements of A is same as the ones of V, one can foldi graph of V by matrix product. This can be thoudht the product of  Q and K.
- さらに$Wv$を対角行列としてVとattention map Aの積を考えます。このとき図のようにAの要素もVと同様な形状をしていれば行列積によってVのグラフを折りたたむような出力が得られます。
- これはAの元になっているQの形状をKで引き伸ばすような処理によって得られます。
-(出力Zの水色の点がある行を計算したい場合Aの水色の行とVのそれぞれの列との内積を取ります。この場合Aの水色の行の非零要素は水色の点しかないので、その列数(横←→)と同じ行数に非零要素があるVの列(水色)との内積しか非零になる要素はなく、結果としてAの水色と同じ行、Vの水色と同じ列のZの要素のみが非零となる)
+Then suppose $W$ as diagonal matrix,consider product of matrix Q,K and attention map A, if the shape of elements of A is same as the ones of V, one can fold graph of Q or K by matrix product. This can be thought the product of Q and K. 
+これはAの元になっているQの形状をKで引き伸ばすような処理によって得られます。
+
+When calculating the row of Z where blue point exist, multiply product of blue row of Q and each column of K. In this case non-zero element of blue row  is only blue point, 
+the column number 
+As a result, only the element of Z where same row as blue row of Q, same column of blue columun of K is non-zero.
+
+その列数(横←→)と同じ行数に非零要素があるVの列(水色)との内積しか非零になる要素はなく、結果としてAの水色と同じ行、Vの水色と同じ列のZの要素のみが非零となる)
 ![](img/attention.png)
 
 The self reference structure can be achieved by this operation. $W_q$ is unit matrix
-これによってattentionにおいて自己参照的な構造が得られることになります。Wqは単位行列でありKでその形をnxnに引き伸ばすようにすれば良さそうですがもともとのKey,Queryの意味付けと比べると消極的であるようにも見えます。別の言い方をするとattentionでは1回の繰り返しでより多くの自己参照をしていると言えます。関数マップにおけるεの調整もモデル内部で行っていると言えるかもしれません。
+これによってattentionにおいて自己参照的な構造が得られることになります。Wqは単位行列でありKでその形をnxnに引き伸ばすようにすれば良さそうですがもともとのKey,Queryの意味付けと比べると消極的であるようにも見えます。別の言い方をするとattentionでは1回の繰り返しでより多くの自己参照をしていると言えます。
+関数マップにおけるεの調整もモデル内部で行っていると言えるかもしれません。
 
-上で挙げた例では各行の1つの要素のみが非零の場合のみを説明しましたが、複数の要素が非零の多価関数、確率分布関数(確率過程)を変換する写像と捉えることもできます。(Transformerでは確率分布の正規化に類似した処理をsoftmax,dでの割り算で行っています。)
-またここでの例では層ごとに同じ重みパラメーターを用いるものとしてGNN,関数マップとの類似性、等価性を見てきましたがattentionを用いたネットワークでは層ごとに異なるパラメーターを用いています。
-
-f and g corresponds to morphism, the functor is functional dynamics.
-In other formulation f,g are objects, functional dynamics itself is morphism and the functor is parametrize by $\epsilon$.
-By restricting the formular of FD linear interpolations as in the original paper, category theory can explation  its parameters $\epsilon$.
-Functor between FD and parameter $\epsilon$ is natual transformation. Yoneda's lemma $Nat(h_A,F)\simeq F(A)$ corresponds to this relation is 
+The above example is only one element of each rows is non-zero, in case multiple elements are non-zero FD can be thought as converter of multi valued function of probablistic distribution function (probablistic process).In transformers renormalization for probablistic distribution function is calulated by softmax and division by root d.
+In this paper we only treat same weight parameter for each layers compare to FV and attentions, recently this is called recurrent transformer and paid attention with researchers[].
 
 One of the interesting property of FD is hierachical structure of points. Fixed points are on diagonal line called type I, type II fixed points is depends of  type III fixed points refer to ...and so on.  [].
 ![](img/hierchical.png)
@@ -129,8 +131,9 @@ Markov category(MC) is a modeling of probablistic calculation and statistical in
 
 Topos is defined CCC which has subobject classifiers $Sub: C^{op}\rightarrow Set$.
 
-Yoneda's lemma explains the relation between the behavior and parameters FD.
-According to Yoneda's lemma, for a category C, and a functor from C to othre category D.
+Intuitively function f and g of FD corresponds to morphism, the functor is functional dynamics.  In other formulation f,g are objects, functional dynamics itself is morphism and the functor is parametrize by $\epsilon$. By restricting the formular of FD linear interpolations as in the original paper[][], category theory can explation its parameters $\epsilon$. Functor between FD and parameter $\epsilon$ can be thought natual transformation.
+
+Yoneda's lemma explains the relation between the behavior and parameters FD. According to Yoneda's lemma, for a category C, and a functor from C to othre category D.
 $F(x) \leftrightarrow , x \in C, F: C^{op}$
 C^{op}$ is the opposite category of C which morphics is reverse directino to C.
 
@@ -163,16 +166,42 @@ of output has linear relation. Not to destroy linear structure at softmax. For c
  $softmas(x)/\sqrt{d}$ here we call this simply softmax. 
 
 ### Transformers as composition of SMCC and Markov category
-composition of SMCC and Markov category
-The output of this category is
+is a composition of SMCC and Markov category
+The output of this category is .
+#### Typing the FV
+In the reference implementation, an FV is computed as a sum over top heads of the out-projection of head activations at the last token, yielding an element of $\mathbb{R}^{d}=\mathbb{R}^{\mathrm{resid\_dim}}$. It is therefore literally a **point** of a parameter object $P_{FV}\subset\mathbb{R}^d$, *not* an element of the internal hom $X\multimap Y\cong\mathbb{R}^{d\times d}$. This dimension gap must be bridged by an explicit **realization map** $\Phi:P_{FV}\to(X\multimap Y)$.
 
-## The restriction of linear logic is partiallyt recorved by residual connections
+The task index $t$ is **not** a parameter but *data*: it is inferred from the context, not a free weight. The weights $W_{q,k,v,O}$ are shared across all tasks and therefore cannot by themselves select $t$; only the context can. We thus separate two morphisms:
+
+- **Extraction** $E:\mathrm{Ctx}\to P_{FV}$, reading the in-context examples once and producing the point $v_t=E(\mathrm{ctx}_t)$; the weights are the *static* parameters of $E$.
+- **Application** $A:P_{FV}\otimes X\to Y$, defined via $\Phi$ and $\mathrm{ev}$.
+
+Robustness of the FV to the choice of insertion site and head set is evidence that the conserved quantity is the point $v_t$ (a site-independent datum), supporting the *point* typing over a position-dependent section.
+
+#### The linear approximation and multiplicative intuitionistic linear logic (MILL)
+To reach linear $\lambda$-calculus we must keep the *bilinear* value path while treating the softmax pattern as frozen (a query-independent constant), because a fully linearized forward pass collapses the FV intervention to an affine translation and destroys $\multimap$. Under this approximation the ambient SMCC is $(\mathbf{Vect}_k,\otimes,I)$ with internal language the multiplicative intuitionistic fragment MILL $(\otimes,\multimap,I)$. The absence of a $\otimes$-diagonal is exactly the linearity discipline "each resource used once".
+
+#### ICL as a single linear $\lambda$-term
+With $E$ and $\Phi$ as constants, and using the currying isomorphism $\mathrm{Hom}(C\otimes A,B)\cong\mathrm{Hom}(C,A\multimap B)$:
+
+$$
+\dfrac{c:\mathrm{Ctx}\vdash \Phi(E\,c):X\multimap Y \qquad x:X\vdash x:X}
+{c:\mathrm{Ctx},\,x:X\vdash (\Phi(E\,c))\,x:Y}\;(\multimap\text{-elim}=\mathrm{ev})
+$$
+
+$\boxed{\;\lambda c.\,\lambda x.\,(\Phi(E\,c))\,x\;:\;\mathrm{Ctx}\multimap(X\multimap Y)\;}$
+
+Because $\multimap$-elimination merges disjoint contexts, both $c$ and $x$ are used exactly once, so the term is well-typed in linear $\lambda$-calculus. The reading is: the context is compiled to a *function-typed value* (the type $\mathrm{Ctx}\multimap(X\multimap Y)$), the FV $E(c)$ is a reified **function reference** (a first-class datum), $\Phi$ resolves the reference into a procedure, and $\mathrm{ev}$ applies it. This makes precise the FV literature's statement that the vector *triggers* rather than *performs* the task: $\text{FV}=E(c)$ is the point; $\text{procedure}=\Phi(E(c))\in X\multimap Y$.
+
+An honest caveat: $\Phi$ is an additional, non-automatic structure; whether the downstream effect of an FV is genuinely a multiplicative modulation (eval) rather than a constant additive bias is an empirical question, addressed in §6.
+
+### Hypothesis: the restriction of linear logic is partiallyt recorved by residual connections
 Linear logic restricts using a proposition (or a fact) only once a during deduction process.
 This makes the efficiency of deduction per one layer lower,  but makes mutch simpler deduction program as in human programming using spesicif language like Rust[].
 
-## The total formulation
-The main statement of this paper is drawn as attention matrix is 
-the data flow in a layer of transformer as composition of Markov category and SMCC is depicted as fig.
+### The total formulation
+The main statement of this paper is drawn as transformers are mutial adjoint between piecewise-linear, Cartesian category corresponds to MLP and linear category corresponds to attention, expecially an attention matrix is a composition of Markov category and SMCC.
+The data flow in an attention matrix as composition of Markov category and SMCC is depicted as fig.
 
 $x \xrightarrow{W_q,W_k} (Q,K) \xrightarrow{softmax,carring} A \simeq Hom(X, \multimap Y) \xrightarrow{eval} C$
 
@@ -183,32 +212,71 @@ $A \otimes V \rightarrow C$
 Here $KL(D)$ is Kleisli category and $D$ is distribution monad. $D$ and $Kl(D)$ is the category which have kernel as morphism.
 The function of MLP has not shown here. Actual function is numerical experimentally decided.
 
-of to categories.
 
 ### proofs of theorems formulation
 The formal proofs of above statements written in lean is in appendix.
 - Theorem 1 a layer of transformer is Kleisli morphism of composit monado M.
-- Theorem 2 eval-apply is unit/counit of adjoint,  the type of λc.λx.(Φ(Ec))x is linear $\lambda$ term.
+- Theorem 2 eval-apply is unit/counit of adjoint,  the type of $\lambda$c.$\lambda$x.(Φ(Ec))x is linear $\lambda$ term.
 - Theorem 3 residual connection is written by (co)diagonal of biproduct, this is not !.
 - Theorem 4 The two roles of the attention matrix, $Kl(D)(pos,pos)$ and $Hom(V\multimap V)$ connected by a functor.
 
 ## Numerical Experiments 
 We explained attention structure, redisual connection and softmax in above forumulations  But MLP has not yet explained.
 There is a statement that the function of MLP in transformer is key-value retrive [].Here we experimentally evaluate this hypothesis.
-
+### The first experiment 
 Here we show the result of relation between residual connection strength and ablity of reuse intermediate values. This hypothesis means the correlation between reuseage number $r$ and degration of model without redisual connection.
 
+Each architectures trainined independely, the evaluations of same weight is done with continuous change of residual coefficient $alpha$.
+
+#### Results
+
+##### 実験1.1 :構成ごとに別訓練(分布シフトを排除)
+残差を完全に除くと(none)、rに関わらずすべてchance近傍。残差ありは全rで完璧。これは「残差=深さ軸の加法的 ⊕-copy が値の運搬を担う」という予測と整合します。
+
+一方「r が増えるほど劣化が大きい(r × 残差の交互作用)」は観測されませんでした ― none は r=1 から既に崩壊しており、r依存性がない。これは仮説の部分的な反証で、残差が担うのは「再利用回数に応じた fan-out」ではなく、そもそも値を深さ方向に運ぶこと自体らしい。この区別は理論にとって重要で、加法的 copy は「r 回の再利用を可能にする」のではなく「1回でも値を下流に届ける」ための配管だ、ということになる。
+
 In this experiment r interaction effect is not observed. This means neither additive copy and Markov copy works as copy function solely.
+##### 実験1.2: 同一重み・α 連続変形
 
-Another question is that do the restriction number of variabe reuse r depend on layer number(depth) L of a transformer?
-This is ecvaluate by calculating correration coefficients of several L and r. 
+full 残差で訓練したモデルの重みを一切変えず、x↦αx+f(x) の α だけ動かす(α=1 が訓練時):
+```
+α	q0	q1	q2
+1.00	1.000	1.000	1.000
+0.90	1.000	1.000	1.000
+0.75	0.954	0.940	0.922
+0.50	0.178	0.155	0.124
+0.25	0.101	0.099	0.098
+0.00	0.095	0.087	0.100
+```
 
-These code and results on github.
-### Results
-#### The first experiment 
-#### The second experiment 
+「同一重み・残差のみ異なる LLM の出力は異なりうるか」への答えは Yesでα=0.75 で後段クエリほど劣化が大きい(0.954→0.922)という微弱な勾配があり、深さ方向の運搬が徐々に効かなくなる描像と整合します。
+
+### The second experiment 
+Another question is that wehre outstanding performance of transformers comes from and is it related to category theoretical sturucture shonw in this paper or not. There is another possibility that architecture of network is not main cause of performance, specific learned weight values are essential for the performance. To solve this problem, we prepare an experiment comparing accuracy of retrival task with recurrent neural network (RNN) and state space model (SSM), which transformers good at and tatget taks of function vector study[].
+
+#### Results
+### 結果 2.1 ― 三アーキ比較(m=4、chance=0.167)
+
+| Transformer | RNN(GRU) | 対角SSM |
+|---|---|---|
+| **1.000** | 0.405 | 0.322 |
+
+**retrieval で Transformer が固定状態モデルに圧勝**。任意の過去の束縛を**アドレス指定**できる Transformer と、文脈を固定サイズ状態に圧縮してしまう RNN/SSM の差。これは turn 32 の逆 ― 状態追跡(Transformer が苦手)ではなく retrieval(Transformer が得意)を測ったので、比較優位が正しい向きに出ました。
+
+### 結果 2.2 ― 構成要素 ablation(Transformer、m=4)
+
+| intact | freeze_attn(動的 routing を殺す) | linear_mlp(eval 実現 Φ を殺す) |
+|---|---|---|
+| 1.000 | **0.284** | 0.855 |
+
+**明確な分離です。** m=4 で Transformer=1.000、RNN=0.405、SSM=0.322(chance 0.167)— retrieval で Transformer が固定状態モデルに圧勝。次に ablation で「どの構成要素が担うか」を切り分けます。**二重乖離が出ました。** 結果をまとめます。Retrieval / 動的スパース性の検証実験を実装し、CPU で予備実行しました。設計の核心は turn 34 の通り「retrieval を解けること」でなく「**どの構成要素が担うか**」の分離です。
+
+理論は「routing = softmax(Markov 核)、apply = eval」と予測しており、retrieval はちょうどその **routing 半分を行使**するタスクです。attention 凍結でそれが崩れたのは、理論が予測する構成が retrieval で**発揮されている**証拠 ― すなわち破れでなく構成の成功。「retrieval で勝つのは Markov(softmax=動的 routing)+ SMCC(eval)構成の成功であって破れではない」が裏づけられました。
+
+
 
 ## Discussion and Perspectives
+
 ### Related works
 
 There is some attempt to prove transformers have same ability as Universal Turing Machine.
@@ -232,24 +300,37 @@ One-step calculation ability is also important question. If complex lambda formu
 
 Multi Head attentions (MHA) are also key part of transformer performance. But it is not discussed and evaluated well in this paper. Pararlell architecture may achieved different values assignment to same expression and reduction. MLPs after concat work as selecting and merging the results, which could be decided this assumption is correct or not experimentally. Mixture-of-expert is same as MHA but larger structure.
 
-Empirical experiments and direct explation of transformer language processing ability corresponds to the architecutuer is important research region.
-Several studies[][] are using S-expression or Dyck language to hierachical language and its limitation.
-detectiong and processing 
-meta functions descripted in usual programming language like S-expression is future task.
+Empirical experiments and direct explation of transformers' language processing ability corresponds to the architecutuer is important research region.
+Several studies[][] are using S-expression or Dyck language to explain dettection ability of hierachical language and its limitation. As an extantion of function vector, detecting and processing meta functions described in usual programming language like S-expression is future work.
+
 ### Learnability
 The success of transformers is not only higher order function programmability and in-context learning, but learnablity and avoiding local minimum, overfitting are also significant properties and affect to large application area industries.
 For example, Edge of chaos hypothesis states highset learning speed is achieved when learning rate is on critical point[].
-In other studies, attentions as a component of transformers tends to cluster in reccuerent structure. On the other hand MLP suffers from chaotic separation of phase spate[] which cause poor classification resulst.  As combinations of attention and MLP, transformers can be adjust learning dynamics properly to reach low loss function solution speedy. In this case changing the ration between attentions and MLPs and measure prediction performance of learned parameters is simple experiment to detect the function of edge of chaos flow.
+In other studies, attentions as a component of transformers tends to cluster in reccuerent structure. On the other hand MLP suffers from chaotic separation of phase spate[] which cause poor classification resulst.  As combinations of attention and MLP, transformers can be adjust learning dynamics properly to reach low loss function solution speedy. In this case changing the ration between attentions and MLPs and measure prediction performance of learned parameters is simple experiment to detect the function of edge of chaos flow[].
 
-### Learning process as category
-In this paper, we show explanation of inference and generation of fuction Transformers and ability higher logical property.
+### Learning process in category theory
+In this paper, we only show formulation and explanation of inference and generation of fuction Transformers and ability higher logical property.
 To extend categoric theoretical view to the learnability of transformer, to explain this dynamical systems view required 
-Because learning process cannot tread as natural transformation. sdo 2-category which has morphism of morphism as an objcet, is nesesssary to explain  
-Using Cartesian reverse derivative category(CRDC) which has is an asswer. Discriminaiton 2 kinds of Jacobian $R[f]$(partial derivativs of weight parameter) and $D_A[f]$(derivatives of layer input vector), are different variables but they are connected with chain rune of differnetation. Lyapunov spectrum ,eigen values of these Jacobians rule dynamics of neural networks.
+Because learning process cannot tread as natural transformation. Actually, 2-category which has morphism of morphism as an objcet, is nesesssary to explain fic
+
+On the other hand ICL can ben treated as linear $\lambda$-calculas based on leanr category. Where the difference comes from is 
+
+Using Cartesian reverse derivative category(CRDC) which has is an answer. Discriminaiton 2 kinds of Jacobian $R[f]$(partial derivativs of weight parameter) and $D_A[f]$(derivatives of layer input vector), are different variables but they are connected with chain rune of differnetation. Lyapunov spectrum ,eigen values of these Jacobians rule dynamics of neural networks.
 
 Differencial structure, spectrum and topology are additional structure of CRDC and can be described by using vocablaries of basic category theory such as functor or natural transformation.
 
-How CRDC relates and describe lyapunov spectrum , bifurcation, learning dynamics like grokking is important question.
+Whether the extra structure reduces to categories/functors/natural transformations, in the same sense that 2-categories are $\mathbf{Cat}$-enriched and $\infty$-categories are $\mathbf{sSet}$-enriched:
+
+| Added structure | Basic-vocabulary formulation | Ground required externally | Reducibility |
+|---|---|---|---|
+| Differential | Tangent category: functor $T$ + natural transformations $(p,0,+,c,l)$ + limit preservation | (none essential) | Fully internal |
+| Spectral | Dagger category + biproducts (contravariant $\dagger$, natural isos) | Scalar object $\Bbbk=\mathbb{C}$, algebraically closed and complete | Structure reducible; eigenvalue *content* is ground |
+| Topological equivalence | $\mathbf{Top}$-enrichment + preservation of the $\mathbb{R}$-action (flow) | Base $\mathbf{Top}$ (or condensed) and a time object | Only via enrichment; not internalized |
+
+So all three are expressible with categories, functors and natural transformations — but, exactly as for 2- and $\infty$-categories, spectral theory and topological equivalence require *choosing an enrichment base* ($\mathbb{C}$-linear complete dagger; $\mathbf{Top}$). Only the differential layer is purely internal (tangent categories). The minimal categorical setting for the bifurcation program is therefore: tangent category (differential, internal) + $\mathbb{C}$-linear complete dagger-biproduct enrichment (spectral, chosen ground) + $\mathbf{Top}$-enrichment or flow $\mathbb{R}$-action (topological, external). The most tractable route is to phrase grokking's saddle-to-saddle as a loss of invertibility / imaginary-axis crossing of the state Jacobian $D_A[f]$ in the dagger subcategory, which uses only the first two layers; topological conjugacy failure then follows via Hartman–Grobman.
+
+In general, considering network architectures in points of view of dynamical systems and category theory is useful for the performance and its limit.
+Especially CRDC relates to and describe lyapunov spectrum , bifurcation, learning dynamics like grokking is important question.
 
 ## Conclusions
 In this paper, we show the correndence between lambda calculas and transformer, functional dynamics and explain the linear calculation ability in-context of transformers is composed Markov and SMCC categories.
@@ -274,12 +355,12 @@ https://learnmechinterp.com/topics/mlps-in-transformers/
 - [UTM critics](https://lifeiscomputation.com/transformers-are-not-turing-complete/)
 - [Self-Attention Networks Can Process Bounded Hierarchical Languages](https://arxiv.org/abs/2105.11115)
 - [Lawvere's fixed point theorem](https://ncatlab.org/nlab/show/Lawvere%27s+fixed+point+theorem)
-
+- [The Illusion of State in State-Space Models](https://arxiv.org/abs/2404.08819)
 ## Aknowledgement
 We thank very useful discussion with Dr. Kunihiko Kaneko and Dr. Kai Nakaishi.
 
 ## Appendix
-### Proofs of theorems in lean
+### Appendix A formal proofs of theorems in lean
 Common sector
 ```lean
 import Mathlib.CategoryTheory.Monoidal.Closed.FunctorCategory.Basic
@@ -301,7 +382,7 @@ namespace TransformerCat
 universe v u
 variable {C : Type u} [Category.{v} C]
 ```
-"noncomputable section" means following theorems do not caluculated values as functions.
+"noncomputable section" means following theorems do not caluculated specific values as functions.
 
 - Theorem 1 The softmax routing is a Kleisli morphism of a monad D, and whole layer of transformer is Kleisli morphism of composit monado M = T ∘ D.
 ```lean
@@ -342,7 +423,7 @@ example (l : DistribLaw T D)
 
 end KleisliLayer
 ```
-- Theorem 2 eval-apply is unit/counit of adjoint,  the type of λc.λx.(Φ(Ec))x is linear $\lambda$ term.
+- Theorem 2 eval-apply is unit/counit of adjoint,  the type of $\lambda$c.$\lambda$x.(Φ(Ec))x is linear $\lambda$ term.
 ```lean
 section EvalApply
 variable [MonoidalCategory C] [MonoidalClosed C]
@@ -353,7 +434,7 @@ variable {Ctx P X Y : C}
 variable (E : Ctx ⟶ P) (Φ : P ⟶ (ihom X).obj Y)
 
 /-- The reified, realized function  f_t = Φ ∘ E : Ctx ⟶ (X ⊸ Y).
-    This is the (linear) λ-abstraction / "choose" morphism. -/
+    This is the (linear) $\lambda$-abstraction / "choose" morphism. -/
 def curriedFn : Ctx ⟶ (ihom X).obj Y := E ≫ Φ
 
 /-- Application: uncurrying the reified function, X ⊗ Ctx ⟶ Y. -/
@@ -379,12 +460,12 @@ theorem eta (h : Ctx ⟶ (ihom X).obj Y) :
   MonoidalClosed.curry_uncurry h
 
 /-
-  The term  λc. λx. (Φ (E c)) x  of linear λ-calculus, of type
+  The term  $\lambda$c. $\lambda$x. (Φ (E c)) x  of linear $\lambda$-calculus, of type
   Ctx ⊸ (X ⊸ Y), DENOTES `curriedFn E Φ : Ctx ⟶ (ihom X).obj Y`, and its
   applied form denotes `applyMor E Φ`. Theorems `apply_eq_build_then_ev`, `beta`,
   `eta` are the semantic (SMCC) counterparts of the term's typing plus β/η.
 
-  A *syntactic* soundness theorem — "this linear-λ term is well-typed with each
+  A *syntactic* soundness theorem — "this linear-$\lambda$ term is well-typed with each
   variable used exactly once, and its denotation is `applyMor`" — requires a
   formalized linear type system (contexts as multisets, ⊸-intro/elim, a
   no-contraction/no-weakening discipline) that Mathlib does NOT provide. That is
@@ -506,3 +587,87 @@ theorem valuePresheaf_map_comp (Valg : D.Algebra) {X Y Z : (Kleisli D)ᵒᵖ}
 end RepresentationFunctor
 
 ```
+### Appendix B: The relation between distribution moand D, Kleisli categgory $\mathrm{Kl}(D)$ and D-algebra category $\mathrm{EM}(D)$
+#### 1. The Distribution Monad $D$
+
+Let the base category be $\mathbf{Set}$, and define the finite-support version (the continuous version is discussed later):
+$$D(X)=\Big\{\,p:X\to[0,1]\ \Big|\ \mathrm{supp}(p)\text{ finite},\ \textstyle\sum_{x}p(x)=1\,\Big\}$$
+
+This is the set of finitely-supported probability distributions on $X$. The three-part package that makes it a monad:
+
+- **Unit** $\eta_X:X\to D(X)$, $x\mapsto \delta_x$ (the Dirac measure, point mass). "Regard a definite value as a distribution."
+- **Multiplication** $\mu_X:D(D(X))\to D(X)$, collapsing a distribution of distributions by averaging: $\mu(P)(x)=\sum_{q}P(q)\,q(x)$. This is exactly the **law of total probability**.
+- **Functorial action** $D(f):D(X)\to D(Y)$ (for $f:X\to Y$) is the **pushforward**: $D(f)(p)(y)=\sum_{x:f(x)=y}p(x)$.
+
+The monad laws (left/right unit laws and associativity) coincide with the **basic identities of probability**: the marginalization of Dirac measures and the associativity of mixing. Here $\eta$ is "making definite" and $\mu$ is "flattening a mixture."
+
+**On the base category**: $D$ is **commutative** (the sampling order of two independent distributions does not change the result = Fubini) and **affine** ($D(1)\cong 1$; there is exactly one distribution on a one-point set). These two properties are what later make $\mathrm{Kl}(D)$ a Markov category.
+
+**Variants**: the **Giry monad** $G(X)=\{$probability measures on $X\}$ over measurable spaces $\mathbf{Meas}$ (the continuous version — this is the right one for the real-valued logits of attention); the subdistribution monad for subprobabilities ($\sum\le 1$); and so on. Since softmax has finite support, $D$ suffices.
+
+#### 2. The Kleisli Category $\mathrm{Kl}(D)$ — the Category of Stochastic Kernels
+
+$\mathrm{Kl}(D)$ is the category that puts "stochastic morphisms" center stage.
+- **Objects**: the same as the base category (sets).
+- **Morphisms** $X\to Y$: functions $X\to D(Y)$, i.e. assignments of a distribution on $Y$ to each $x$ — **Markov kernels (stochastic kernels)**. For a finite set, a **stochastic matrix** $k(x)(y)=P(y\mid x)\ge0$ whose columns (or rows) sum to 1.
+- **Identity morphism**: $\eta_X$, $x\mapsto\delta_x$ (deterministically pass through unchanged).
+- **Composition** (Kleisli composition = **Chapman–Kolmogorov**):
+$$(k'\circ k)(x)(z)=\sum_{y}k(x)(y)\,k'(y)(z)$$
+the product of stochastic matrices. "Marginalize over the intermediate $y$ the transition from $x$ to $y$ and from $y$ to $z$."
+- **Symmetric monoidal structure** (from the commutativity of $D$): $\otimes=$ the Cartesian product of sets, and the tensor of kernels = the independent joint distribution.
+- **Markov category structure**: copy $X\to X\otimes X$, $x\mapsto\delta_{(x,x)}$ (deterministic duplication) and delete $X\to 1$. Because $D$ is affine, delete is unique (semicartesian); because it is commutative, it is symmetric monoidal. **This copy is non-natural** — for a genuinely stochastic kernel $k$, "copy then $k$" (a perfectly correlated pair $(y,y)$) does not agree with "$k$ then copy" (independent resampling). It is a copy that generates correlation.
+
+Restricting $\mathrm{Kl}(D)$ to finite sets gives **FinStoch** (the category of stochastic matrices). **softmax$(QK^\top)$ is precisely a morphism of this category** — a stochastic kernel from query positions to key positions, a stochastic matrix $A$.
+
+#### 3. $D$-Algebras (the Eilenberg–Moore Category $\mathrm{EM}(D)$)
+
+Whereas Kleisli made "morphisms" the protagonist, $D$-algebras make "**a structure that consumes a distribution and returns a value**" the protagonist.
+
+A **$D$-algebra** is a pair $(X,\alpha)$ with $\alpha:D(X)\to X$ satisfying two coherence laws:
+
+$$\alpha\circ\eta_X=\mathrm{id}_X\qquad(\text{the point mass }\delta_x\text{ evaluates to }x)$$
+$$\alpha\circ\mu_X=\alpha\circ D(\alpha)\qquad(\text{a distribution of distributions: flatten then evaluate = evaluate each then evaluate})$$
+
+**Meaning**: $\alpha$ maps "a distribution on $X$ to a single element," i.e. it performs **taking a barycenter / expectation / convex combination**. In other words, a $D$-algebra = a set on which convex combinations can be taken.
+
+**What concretely is a $D$-algebra**: the Eilenberg–Moore category of the finite-distribution monad is equivalent to the category of **convex spaces (abstract convex spaces)** (Fritz–Perrone et al.). The decisive example for us — **any real vector space $V$ is a $D$-algebra**, with structure map
+
+$$\alpha_V:D(V)\to V,\qquad \alpha_V(p)=\sum_{v}p(v)\,v=\mathbb E_{p}[v]\quad(\textbf{expectation}).$$
+
+More generally, a convex subset of a vector space is a $D$-algebra. The morphisms of algebras are affine maps (commuting with convex combinations = commuting with $\alpha$).
+
+**Value mixing is exactly this action**: Because after softmax produces $A(x)\in D(\text{positions})$, the value mixing $A\!\cdot\!V=\sum_y A(x)(y)\,v_y$ is the $D$-algebra structure $\alpha_V:D(V)\to V$ of the value space $V$ applied to the distribution = the expectation.
+
+$$\text{attention head}=\underbrace{\big[\mathrm{Ctx}\xrightarrow{\ \text{softmax}\ }D(\text{pos})\big]}_{\text{morphism of }\mathrm{Kl}(D)}\ \text{composed with}\ \underbrace{\big[D(V)\xrightarrow{\ \alpha_V=\mathbb E\ }V\big]}_{\text{action of a }D\text{-algebra}}.$$
+
+Consistency with Kolmogorov theory: a random variable = a measurable function on the sample space $\Omega\to\mathbb R$, and the expectation $\mathbb E$ is the $D$-algebra (Giry-algebra) structure of $\mathbb R$ (or $V$). **softmax routes and expectation mixes** fits into the single phrase "kernel ∘ algebra action."
+
+#### 4. The Relationship Between $\mathrm{Kl}(D)$ and $\mathrm{EM}(D)$ — Adjunctions and the Comparison Functor
+
+The two are not unrelated; they are two resolutions of the same monad $D$. Every monad arises from an adjunction $F\dashv U$, and $D$ has two canonical ones.
+
+- **Kleisli resolution**: $F_K:\mathbf{Set}\to\mathrm{Kl}(D)$ (free) $\dashv U_K$. $\mathrm{Kl}(D)$ is the category of **free $D$-algebras** only.
+- **Eilenberg–Moore resolution**: $F_{EM}:\mathbf{Set}\to\mathrm{EM}(D)$, $X\mapsto(DX,\mu_X)$ (free algebra) $\dashv U_{EM}$ (forgetful, $(X,\alpha)\mapsto X$). $U_{EM}F_{EM}=D$ recovers the monad.
+
+The **counit of $F_{EM}\dashv U_{EM}$ is exactly the algebra structure map** — $\varepsilon_{(X,\alpha)}:(DX,\mu)\to(X,\alpha)$ is $\alpha$ itself. So calling the expectation $\mathbb E$ "counit-like" in the previous group of turns was accurate: **value mixing = a component of the counit of the EM adjunction**.
+
+And the **comparison functor** $K:\mathrm{Kl}(D)\to\mathrm{EM}(D)$, $X\mapsto(DX,\mu_X)$, is fully faithful, embedding $\mathrm{Kl}(D)$ as the **full subcategory of free algebras**:
+
+$$\mathrm{Kl}(D)\ \hookrightarrow\ \mathrm{EM}(D)\qquad(\text{free algebras}).$$
+
+So the two are the "free end ($\mathrm{Kl}$, kernels)" and the "full-algebra end ($\mathrm{EM}$, convex spaces)": the value space $V$ lives in $\mathrm{EM}(D)$ as a **non-free** $D$-algebra, and the attention computation feeds the kernel $A$ of $\mathrm{Kl}(D)$ into the structure map $\alpha_V$ of $V$, an object of $\mathrm{EM}(D)$ — a move that **straddles the two categories**. This is the $D$-side content of "a Transformer is not a single SMCC but a composite of a Markov category and an SMCC."
+
+# 5. Summary Table, and Implications for Unification
+
+| | $\mathrm{Kl}(D)$ | $\mathrm{EM}(D)=\mathrm{Alg}(D)$ |
+|---|---|---|
+| protagonist (morphism/object) | stochastic kernel (morphism) $X\to D(Y)$ | $D$-algebra (object) $(X,\alpha)$ |
+| concretely | stochastic matrix (FinStoch) | convex space / vector space (with expectation) |
+| Transformer | **softmax** = kernel $A$ | **value space** $V$, $\alpha_V=\mathbb E$ = value mixing |
+| relation to the monad | subcategory of free algebras | full algebras, $U_{EM}F_{EM}=D$ |
+| copy | non-natural (generates correlation) | convex structure preserved by affine maps |
+
+The unified category (composite monad $M=T\circ D$)" also becomes visible here. To bundle the linear part $T$ and the distribution $D$ into a single monad, one needs a distributive law $DT\Rightarrow TD$, and its natural candidate is precisely **"expectation commutes with linear maps"** — the very fact that $\alpha_V$ is affine/linear. That the $D$-algebra structure is compatible with the linear structure of $V$ ($\mathbb E$ is linear) is the seed that generates the distributive law between $D$ and $T$. So pinning down the relationship between $\mathrm{Kl}(D)$ and $\mathrm{EM}(D)$ leads directly into the construction of the unified category (the contents of the previous turn's Lean `composeMonad`).
+
+Writing down the distributive law $DT\Rightarrow TD$ from this linearity of expectation = the $D$-algebra is the next move toward unification and Lean formalization. If you want to proceed by concretely defining the candidate for that natural transformation (corresponding to "pushforward of expectation under a linear map," $D(Tf)\to T(Df)$), you can write out each component of the distributive law by taking $V$ as the free vector space monad $T$ and $D$ as the distribution monad.
+
