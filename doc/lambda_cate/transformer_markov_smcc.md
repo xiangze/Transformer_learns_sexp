@@ -7,7 +7,7 @@ include-entry: '.'
 
 # Transformers as a Composite of a Markov Category and a Symmetric Monoidal Closed Category
 # Abstract
- We give a compositional categorical account of a single Transformer layer. The value path of self-attention is a morphism of the symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$, whose internal language is multiplicative intuitionistic linear logic (MILL); under a linear approximation this lets us read in-context computation as a **linear λ-term**. The MLP acts as a non-linear realization map and, empirically, as a key–value memory. The residual connection supplies an **additive** copy (the biproduct diagonal), which is a legitimate but weaker notion of copy than the forbidden multiplicative diagonal and than the exponential modality. The softmax attention matrix is a morphism of a **Markov category** — the Kleisli category of the distribution monad — and value mixing is the action of the associated $D$-algebra (expectation). Consequently a Transformer layer is naturally written as a **composite of a Markov category and an SMCC**, plus an additive/non-linear layer, rather than as any single closed category. Reading the residual stream as a linear **polynomial extension** $\mathcal{K}[x]$, the "apply" of the loop is derived, not posited: it is the evaluation counit of the abstraction–application adjunction that the (linear) deduction theorem produces from the polynomial extension in the sense of Lambek and Došen. We ground each component in the existing categorical foundations of machine learning, embed results from a controlled experiment that localizes the copy structure in softmax and the applied value in the MLP, and leave the Function-Vector experiments as clearly marked placeholders to be filled from a real language model. On **expressivity** we defer to the topos analysis of Villani and McBurney [2024], whose piecewise-linear base is apt for ReLU networks and whose choose∘eval decomposition independently reaches the eval–apply reading; we measure a different quantity, **resource structure**, which a cartesian model cannot see. In the linear/PL-input regime the value path — residual copy included — is expressible in $!$-free intuitionistic linear λ-calculus, and the hypothesis that the model performs *only* such resource-linear computation cannot be excluded; our experiments support rather than merely fail to refute it.
+ We give a compositional categorical account of a single Transformer layer. The value path of self-attention is a morphism of the symmetric monoidal closed category (SMCC) $(\mathbf{Vect},\otimes,\multimap)$, whose internal language is multiplicative intuitionistic linear logic (MILL); under a linear approximation this lets us read in-context computation as a linear $\lambda$-term. The MLP acts as a non-linear realization map and, empirically, as a key–value memory. The residual connection supplies an additive copy (the biproduct diagonal), which is a legitimate but weaker notion of copy than the forbidden multiplicative diagonal and than the exponential modality. The softmax attention matrix is a morphism of a Markov category — the Kleisli category of the distribution monad — and value mixing is the action of the associated $D$-algebra (expectation). Consequently a Transformer layer is naturally written as a composite of a Markov category and an SMCC, plus an additive/non-linear layer, rather than as any single closed category. Reading the residual stream as a linear polynomial extension $\mathcal{K}[x]$, the "apply" of the loop is derived, not posited: it is the evaluation counit of the abstraction–application adjunction that the (linear) deduction theorem produces from the polynomial extension in the sense of Lambek and Došen. We ground each component in the existing categorical foundations of machine learning, embed results from a controlled experiment that localizes the copy structure in softmax and the applied value in the MLP, and leave the Function-Vector experiments as clearly marked placeholders to be filled from a real language model. On expressivity we defer to the topos analysis of Villani and McBurney [2024], whose piecewise-linear base is apt for ReLU networks and whose choose∘eval decomposition independently reaches the eval–apply reading; we measure a different quantity, resource structure, which a cartesian model cannot see. In the linear/PL-input regime the value path — residual copy included — is expressible in $!$-free intuitionistic linear $\lambda$-calculus, and the hypothesis that the model performs only such resource-linear computation cannot be excluded; our experiments support rather than merely fail to refute it.
 
 # Introduction
 Almost universal computation power of Transfomers attracta many reseachers. Especiallty universal turing machine(UTM) ,lambda calculation theory and category theory are usually use to explain them.
@@ -245,7 +245,7 @@ Assembling §§3–6, a Transformer layer is the composite displayed in §1: a M
 
 # Experiments
 
-## Controlled probes on a synthetic in-context model
+## The first experiment, Controlled probes on a synthetic in-context model
 
 We train a small decoder Transformer ($V=10$ symbols, $k=5$ in-context examples, $d=64$, $L=3$ layers, $4$ heads) on an in-context permutation-application task (infer a random bijection $\pi$ from examples, apply it to queries). This is a methodology demonstrator, not a language model; the same probes attach to real models via forward hooks. The model reaches **single-query accuracy $1.000$** (chance $0.100$).
 
@@ -280,36 +280,26 @@ Freezing attention collapses multi-query reuse to chance (the Markov copy of §6
 
 Together the probes support **eval = attention (with the copy), apply/realization = MLP**, and reject either monolithic reading.
 
-## Function-Vector experiments (to be filled)
+## The second experiment, architecture comparison
+Another question is that wehre outstanding performance of transformers comes from and is it related to category theoretical sturucture shonw in this paper or not. There is another possibility that architecture of network is not main cause of performance, specific learned weight values are essential for the performance. To solve this problem, we prepare an experiment comparing accuracy of retrival task with recurrent neural network (RNN) and state space model (SSM), which transformers good at and tatget tasks of function vector study[FV].
 
-The following experiments run the same three questions on a real language model using the Function-Vector pipeline (`ericwtodd/function_vectors`): FV extraction (mean head activations → indirect effect → summed top heads), intervention via `add_function_vector`, and `baukit.TraceDict` hooks. Results are **left blank pending execution on a GPU environment** (the reference models are downloaded from a source not reachable from the drafting environment).
+### three architecture comparison(m=4、chance=0.167)
 
-**FV-1 — reuse + realization (edit-layer sweep, single fixed FV across many queries).**
-Model: `__________`. Task: `__________`. FV top heads: `__________`.
-
-| edit layer | FV-insertion zero-shot accuracy |
-|---|---|
-| … | `_____` |
-| $L^{*}$ (peak) | `_____` |
-| … | `_____` |
-| bias-only null ($W_U\,\mathrm{ln}_f(\mathrm{FV})$) | `_____` |
-
-*Expected reading:* a mid-layer peak $\gg$ bias-only indicates that one fixed point, reused across all queries, is realized+applied downstream ($\Phi$+eval) rather than acting as a constant logit bias.
-
-**FV-2 — apply localization (ablate attention-out vs MLP-out downstream of $L^{*}$).**
-Base FV-insertion accuracy: `_____`.
-
-| layer $l>L^{*}$ | attn-ablate drop | mlp-ablate drop |
+| Transformer | RNN(GRU) | diagonal SSM |
 |---|---|---|
-| … | `_____` | `_____` |
+| **1.000** | 0.405 | 0.322 |
 
-*Expected reading:* larger MLP drops localize realization/apply ($\Phi$) in the MLP; larger attention drops localize evaluation in attention.
+In the Accurary retrieval task, the Transformer handily defeated state-based models. The difference was evident between the Transformer—which can address arbitrary past constraints—and RNNs/SSMs, which compress context into a fixed-size state. Since we evaluated retrieval (which the Transformer excels at) rather than state tracking (which the Transformer struggles with).
 
-**FV-3 — copy localization (cross-position interaction, attention vs MLP per layer).**
+### components ablation(Transformer、m=4)
 
-| layer | attention | MLP | ratio |
-|---|---|---|---|
-| … | `_____` | `_____` | `_____` |
+| intact | freeze_attn(freeze dynamic routing) | linear_mlp(freex eval) |
+|---|---|---|
+| 1.000 | **0.284** | 0.855 |
+
+In ablation testing to isolate which components are responsible for this performance, a clear distinction in accuracy emerged. For m=4, Transformer=1.000, RNN=0.405, and SSM=0.322 (chance 0.167)—in the retrieval experiment, Transformer decisively outperformed the static model. 
+
+The theory presented in this paper predicts that “routing = softmax(Markov kernel), apply = eval,” and retrieval is precisely the task that performs half of that routing. The fact that this broke down with frozen attention serves as evidence that the architecture predicted by the theory is indeed being utilized in retrieval; it is not a failure of the categorical framework but rather a success of the architecture. This confirms the assertion that “Transformer’s success in retrieval stems from the success of the Markov (softmax = dynamic routing) + SMCC (eval) architecture, not a failure of that framework.”
 
 *Expected reading:* attention-dominant cross-position term corroborates the softmax (Markov) copy of §6, with the toy model providing the exact position-wise isolation.
 
@@ -415,6 +405,33 @@ Merrill and Sabharwal [2024] show that chain-of-thought raises the expressive po
 
 Two points must be stated precisely to avoid over-claiming. First, this is an *interpretive* strengthening: we do not re-derive the CoT theorem categorically, and the CoT-as-$G$-unfolding correspondence inherits the caveats above (not a strict adjunction, lossy, external). Second — and this corrects a tempting misreading — our falsification of depth-as-grade (§10.3) does **not** assert a limitation of CoT. Depth is an *internal* axis; CoT is an *external* one. That internal depth fails to supply a reuse budget is not evidence against the external mechanism; on the contrary, "$!$ cannot be grown internally (by depth)" is precisely what makes the *externalisation* of $!$ (CoT, tools) necessary. The correct statement is a division of labour: the exponential modality is unavailable from the Transformer's internal structure (depth, width, heads all leave $n^*$ flat, §9.4) and is instead supplied, at the system level, by external sequential generation — which is the categorical content of chain-of-thought's expressivity gain.
 
+## Learnability of transformers
+The success of transformers is not only higher order function programmability and in-context learning, but learnablity and avoiding local minimum, overfitting are also significant properties and affect to large application area industries.
+For example, Edge of chaos hypothesis states highset learning speed is achieved when learning rate is on critical point[EoC].
+In other studies, attentions as a component of transformers tends to cluster in reccuerent structure[KuramotoTransformer]. On the other hand MLP suffers from chaotic separation of phase spate[MagicNumber7] which cause poor classification resulst.  As combinations of attention and MLP, transformers can be adjust learning dynamics properly to reach low loss function solution speedy. In this case changing the ration between attentions and MLPs and measure prediction performance of learned parameters is simple experiment to detect the function of edge of chaos flow[EoC].
+
+In this paper, we only show formulation and explanation of inference and generation of fuction Transformers and ability higher logical property.
+To extend categoric theoretical view to the learnability of transformer, explaining this dynamical systems point of views are required.
+Because learning process cannot tread as natural transformation. Actually, 2-category which has morphism of morphism as an objcet, is nesesssary to explain fic
+
+On the other hand, ICL can ben treated as linear $\lambda$-calculas based on linear category. Where the difference comes from is interesting theme.
+
+Using Cartesian reverse derivative category(CRDC) which has is an answer[CRDC]. Discriminaiton 2 kinds of Jacobian $R[f]$(partial derivativs of weight parameter) and $D_A[f]$(derivatives of layer input vector), are different variables but they are connected with chain rune of differnetation. Lyapunov spectrum ,eigen values of these Jacobians rule dynamics of neural networks.
+Differencial structure, spectrum and topology are additional structure of CRDC and can be described by using vocablaries of basic category theory such as functor or natural transformation.
+
+Whether the extra structure reduces to categories/functors/natural transformations in the same sense that 2-categories are $\mathbf{Cat}$-enriched and $\infty$-categories are $\mathbf{sSet}$-enriched:
+
+| Added structure | Basic-vocabulary formulation | Ground required externally | Reducibility |
+|---|---|---|---|
+| Differential | Tangent category: functor $T$ + natural transformations $(p,0,+,c,l)$ + limit preservation | (none essential) | Fully internal |
+| Spectral | Dagger category + biproducts (contravariant $\dagger$, natural isos) | Scalar object $\Bbbk=\mathbb{C}$, algebraically closed and complete | Structure reducible; eigenvalue *content* is ground |
+| Topological equivalence | $\mathbf{Top}$-enrichment + preservation of the $\mathbb{R}$-action (flow) | Base $\mathbf{Top}$ (or condensed) and a time object | Only via enrichment; not internalized |
+
+So all three are expressible with categories, functors and natural transformations but, exactly as for 2- and $\infty$-categories, spectral theory and topological equivalence require *choosing an enrichment base* ($\mathbb{C}$-linear complete dagger; $\mathbf{Top}$). Only the differential layer is purely internal (tangent categories). The minimal categorical setting for the bifurcation program is therefore: tangent category (differential, internal) + $\mathbb{C}$-linear complete dagger-biproduct enrichment (spectral, chosen ground) + $\mathbf{Top}$-enrichment or flow $\mathbb{R}$-action (topological, external). The most tractable route is to phrase grokking's saddle-to-saddle as a loss of invertibility / imaginary-axis crossing of the state Jacobian $D_A[f]$ in the dagger subcategory, which uses only the first two layers; topological conjugacy failure then follows via Hartman–Grobman.
+
+In general, considering network architectures in points of view of dynamical systems and category theory is useful for the performance and its limit.
+Especially CRDC relates to and describe lyapunov spectrum , bifurcation, learning dynamics like grokking is important question.
+
 # Conclusion
 
 A Transformer layer is faithfully described not by one symmetric monoidal closed category but by a composite: a Markov category (softmax) bridged by a $D$-algebra expectation to an SMCC (value path, where evaluation and a linear-λ reading live), followed by a non-linear realization map (MLP) and threaded by an additive residual copy. Copy exists in two legitimate but distinct forms — additive (residual, depth axis) and Markov (softmax, position axis) — neither of which is the exponential modality, so the layer is resource-linear at the evaluation site. Controlled experiments localize the copy structure in softmax and the applied value in the MLP; the Function-Vector experiments that would confirm this at language-model scale are specified and left as placeholders.
@@ -424,6 +441,9 @@ On expressivity we defer to the topos analysis of Villani and McBurney [2024]: f
 The same resource lens reads the *limits* of the architecture (§9.4): on permutation-composition state tracking, a shared-curriculum three-architecture sweep reproduces the $\mathsf{TC}^0$ classification of Merrill and collaborators as three capacity-independent plateaus (RNN high, Transformer intermediate, diagonal SSM at the floor), and the plateau heights track the copy structure of each forward category — sequential exponential (RNN), bounded parallel Markov coupling (Transformer), none (SSM). The Transformer's intermediate foothold requires both the softmax Markov kernel and the cartesian MLP nonlinearity, neither alone.
 
 **Open problems.** (i) Whether the non-natural Markov copy of softmax effectively supplies duplication of the strength of $!$ — testable by asking whether reuse of a single FV across multiple queries depends on attention temperature/sharpness. (ii) Which component realizes $\Phi$ in a real LM (MLP vs the $QK^\top$ currying), via the FV tests of §8.2. (iii) Whether the PL/topos higher-order account and the $!$-free linear account can be reconciled as a single stratified model: a higher-order *architecture-selection* level over a resource-linear *value-application* level.
+
+## Aknowledgement
+We thank very useful discussion with Dr. Kunihiko Kaneko and Dr. Kai Nakaishi.
 
 # References
 
