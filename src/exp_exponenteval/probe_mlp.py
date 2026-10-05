@@ -103,6 +103,66 @@ def sep_spec(M: np.ndarray, pairs: int = 64, seed: int = 0) -> float:
     return float(np.mean(acc))
 
 
+def charpoly_inv(T: np.ndarray) -> np.ndarray:
+    """Characteristic-polynomial coefficients of T via Newton's identities.
+
+    Conjugation-invariant (so GL-invariant after whitening) and ordering-free,
+    unlike a sorted eigenvalue list.  This is what makes sep_inv usable in the
+    converged regime; see sep_inv.
+    """
+    n = T.shape[0]
+    Tk = np.eye(n)
+    traces = []
+    for _ in range(n):
+        Tk = Tk @ T
+        traces.append(np.trace(Tk))
+    e = [1.0]
+    for k in range(1, n + 1):
+        s = 0.0
+        for i in range(1, k + 1):
+            s += (-1) ** (i - 1) * e[k - i] * traces[i - 1]
+        e.append(s / k)
+    return np.array(e[1:])
+
+
+def sep_inv(M: np.ndarray, pairs: int = 64, seed: int = 0) -> float:
+    """GL-invariant v-dependence of T(u,u'), with no eigenvalue ordering.
+
+    PREFER THIS OVER Sep AND sep_spec ONCE THE MODEL HAS CONVERGED.  Sep
+    saturates at 1 for small error and sep_spec has a floor (~0.12) caused by
+    sort-order flips between near-degenerate eigenvalues; sep_inv stays linear
+    in the leakage amplitude over at least three decades (sep_inv ~ 0.75 eps_v).
+    """
+    rng = np.random.default_rng(seed)
+    n_u, n_v = M.shape[0], M.shape[1]
+    if n_u < 2 or n_v < 2:
+        return float("nan")
+    acc = []
+    for _ in range(pairs):
+        i, j = rng.choice(n_u, size=2, replace=False)
+        C = []
+        for k in range(n_v):
+            T, *_ = np.linalg.lstsq(M[j, k], M[i, k], rcond=None)
+            C.append(charpoly_inv(T))
+        C = np.stack(C)
+        acc.append(np.mean(C.std(0) / (np.abs(C.mean(0)) + 1.0)))
+    return float(np.mean(acc))
+
+
+def null_expectations(eps: float) -> dict:
+    """What a GENUINELY functorial model with Jacobian error `eps` should show.
+
+    A nonzero rho is not evidence against functoriality until it exceeds this.
+    First order: M(uu') - M(u)M(u') = eps(E_uu' - E_u A_u' - A_u E_u') + O(eps^2),
+    so rho_lin ~ sqrt(3) eps for orthogonal A and independent errors.  The
+    sep_inv slope is measured by simulation (sep_fix.py).
+    """
+    return {"rho_lin_null": np.sqrt(3) * eps,
+            "rho_spec_null": 1.19 * eps,
+            "sep_inv_null": 0.75 * eps,
+            "Sep_null": 1.0 - eps ** 2}
+
+
 def rho_linear(M_uu: np.ndarray, M_u: np.ndarray, M_u2: np.ndarray) -> float:
     d = M_uu - M_u @ M_u2
     return float(np.linalg.norm(d) / (np.linalg.norm(M_uu) + 1e-12))
@@ -320,21 +380,30 @@ def main():
                        for i in range(len(progs))])
         rl, rs, rgt = functoriality(model, out_pos, num_pos, device,
                                     args.n_pairs, vs[0], args.seed, path)
+        fit = float(np.mean([np.linalg.norm(M[i, 0] - program_matrix(progs[i]))
+                             / np.linalg.norm(program_matrix(progs[i]))
+                             for i in range(len(progs))]))
+        null = null_expectations(fit)
         row = dict(
-            Sep=round(sep_eta2(Mw), 4),
+            Sep=round(sep_eta2(Mw), 5),
             sep_spec=round(sep_spec(Mw, pairs=24, seed=args.seed), 4),
+            sep_inv=round(sep_inv(Mw, pairs=24, seed=args.seed), 5),
             id_op=round(twonn(M[:, 0].reshape(len(progs), -1)), 3),
             rho_lin=round(rl, 4),
             rho_spec=round(rs, 4),
             rho_oracle=round(rgt, 6),
-            fit=round(float(np.mean([np.linalg.norm(M[i, 0] - program_matrix(progs[i]))
-                                     / np.linalg.norm(program_matrix(progs[i]))
-                                     for i in range(len(progs))])), 4),
+            fit=round(fit, 5),
+            **{k: round(float(v), 5) for k, v in null.items()},
         )
+        # excess over the functorial-with-noise null: >1 means genuinely non-functorial
+        row["rho_excess"] = round(rl / (null["rho_lin_null"] + 1e-12), 2)
+        row["sep_excess"] = round(row["sep_inv"] / (null["sep_inv_null"] + 1e-12), 2)
         results["paths"][path] = row
-        print(f"  path={path:6s} Sep={row['Sep']:.4f} sep_spec={row['sep_spec']:.4f} "
-              f"id_op={row['id_op']:5.2f} rho_lin={row['rho_lin']:.4f} "
-              f"rho_spec={row['rho_spec']:.4f} |M-GT|={row['fit']:.4f}")
+        print(f"  path={path:6s} |M-GT|={row['fit']:.5f}  Sep={row['Sep']:.5f}  "
+              f"sep_inv={row['sep_inv']:.5f} (null {null['sep_inv_null']:.5f}, "
+              f"x{row['sep_excess']})  rho_lin={row['rho_lin']:.4f} "
+              f"(null {null['rho_lin_null']:.4f}, x{row['rho_excess']})  "
+              f"id_op={row['id_op']:5.2f}")
 
     # rule 4: MLP neuron coefficients -- localization only, not evidence
     C = np.stack([[ffn_coeffs(model, u, v, out_pos, num_pos, device) for v in vs]
