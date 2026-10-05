@@ -1,186 +1,171 @@
 """
-eval_layers.py -- where in the network does [[u]] exist, and how portable is it?
+eval_layers.py -- where [[u]] lives: the (l_in, l_out) scan, position transfer,
+and function-vector portability.
 
-Three questions, all answered by recomputing M under a change of *where* we look
-or *where* we inject.
+The scan replaces the earlier one-dimensional readout sweep. LRE selects the
+injection layer per relation by grid search and its optima spread from layer 1
+to 11, so holding l_in at the embedding was a hole: a model can look like it
+never forms an operator simply because the probe was injecting in the wrong
+place. Sweeping both ends gives a matrix whose entries are read as:
 
-  L1  LAYER SCAN.  M^(l)(u) = d(readout at layer l)/dc. Sweeping l gives a
-      formation curve: Sep^(l) falls and r_op^(l) rises at the depth where the
-      code stops being a token and starts being an operator. The knee is the
-      operational definition of "apply depth". A model that never separates has
-      no such knee.
+    below the diagonal   undefined (l_out < l_in)
+    on the diagonal      also undefined: no block has run between injection and
+                         readout, so with read_pos != x_pos nothing can reach
+                         the readout and M is identically zero
+    above the diagonal   the operator the model builds between the two depths
 
-  L2  POSITION TRANSFER.  Move the x-slot and the readout to different indices in
-      a longer padded template. If [[u]] is a genuine closure, M(u) should be
-      the same operator regardless of where the argument sits. Position
-      dependence means the model learned a positional pattern, not a function.
-
-  L3  FUNCTION-VECTOR PORTABILITY.  Extract the FV theta(u) the way Todd et al.
-      do -- mean of selected attention-head outputs at the last position -- then
-      inject it at a different layer and position in a prompt whose f-slot has
-      been blanked, and recompute M. Two numbers come out:
-
-        transfer[l_src, l_dst] = 1 - ||M_patched - M(u)|| / ||M(u)||
-        null                   = the same with a mismatched u
-
-      This is the sharp form of "is the FV layer/position independent": a
-      closure that survives relocation is a first-class value; one that only
-      works at the layer it was read from is a positional artefact. The null is
-      mandatory -- if all M(u) are similar, transfer is trivially high.
-
-Everything here is written against a small probe protocol so the same analysis
-runs on the numpy reference model and on an HF checkpoint.
+Off-diagonal cells are the only measurements. The signature of an apply depth
+is a BAND, not a point: the row where Sep drops
+tells you where the argument stops being needed as a token, the column where
+r_op saturates tells you where the operator has finished forming. LRE also
+predicts a rise-then-collapse along l_out rather than a monotone knee, because
+late layers switch from enriching the subject to predicting the next token; the
+diagonal control is what separates that mode switch from a genuine failure.
 """
+
+import json
 
 import numpy as np
 
 from eval_common import (variance_decomposition, effective_rank,
-                         intrinsic_dim_twonn, functoriality_residual, EPS)
+                         intrinsic_dim_twonn, functoriality_residual,
+                         verdict, EPS)
 
 
-# ---------------------------------------------------------------- probe protocol
+# ------------------------------------------------------------------ 2-D scan
 
-class Probe:
-    """Implement these three and the whole module works.
+def scan2d(probe, prompts, x_pos, read_pos, ep, layers_in=None, layers_out=None,
+           triples=None, p_true=None, beta=1.0, progress=None,
+           cache=None, cells=None):
+    """prompts: list over u of list over v of `ids`.
 
-      n_layers                       int
-      M(ids, x_pos, read_pos, layer, c0=None, patch=None) -> (M, b)
-      head_out(ids, layer, pos)      -> (n_heads, d) per-head contributions
-    `patch` is (layer, pos, vector) added to the residual stream.
+    cache: path to a jsonl of per-cell results. Cells already present are
+    skipped and reloaded, so a scan over a real checkpoint survives a killed job
+    or an OOM and resumes where it stopped. Each line is one cell -- the unit of
+    work is a cell, not the whole scan, because on a 7B model one cell is minutes.
+
+    cells: explicit list of (l_in, l_out) to compute, for sharding across GPUs.
+    Every rank writes to the same cache path pattern and a final pass with
+    cells=None (or any rank) reassembles the matrix from the cache.
+
+    Returns dict of (n_in, n_out) arrays plus the per-cell verdicts.
     """
-    n_layers = 0
+    L = probe.n_layers
+    layers_in = list(layers_in if layers_in is not None else range(0, L))
+    layers_out = list(layers_out if layers_out is not None else range(1, L + 1))
+    missing = [l for l in layers_in if l not in probe.B]
+    if missing:
+        raise ValueError(f"no injection frame for layers {missing}: build them "
+                         f"with build_in_basis and pass them to TinyProbe")
 
-    def M(self, ids, x_pos, read_pos, layer, c0=None, patch=None):
-        raise NotImplementedError
+    shape = (len(layers_in), len(layers_out))
+    keys = ("sep_full", "frac_u", "pr", "id_twonn", "rho_ratio", "spread")
+    out = {k: np.full(shape, np.nan) for k in keys}
+    verdicts = [[None] * shape[1] for _ in range(shape[0])]
 
-    def head_out(self, ids, layer, pos):
-        raise NotImplementedError
+    done = {}
+    if cache:
+        try:
+            with open(cache) as fh:
+                for line in fh:
+                    try:
+                        r = json.loads(line)
+                        done[(r["l_in"], r["l_out"])] = r
+                    except Exception:
+                        pass
+        except FileNotFoundError:
+            pass
 
+    want = set(cells) if cells is not None else None
 
-class TinyProbe(Probe):
-    """numpy reference implementation (see eval_gauge.TinyLM)."""
+    for i, li in enumerate(layers_in):
+        for j, lo in enumerate(layers_out):
+            if lo <= li:
+                continue          # M is identically zero; see the module docstring
+            if (li, lo) in done:
+                r = done[(li, lo)]
+                for k in keys:
+                    out[k][i, j] = r.get(k, np.nan)
+                verdicts[i][j] = r.get("verdict")
+                continue
+            if want is not None and (li, lo) not in want:
+                continue
+            M = np.zeros((len(prompts), len(prompts[0]), probe.k, probe.k))
+            b = np.zeros((len(prompts), len(prompts[0]), probe.k))
+            sp = []
+            for iu, row in enumerate(prompts):
+                for iv, ids in enumerate(row):
+                    m, bb, s = probe.M(ids, x_pos, read_pos, li, lo, ep, v=iv,
+                                       return_spread=True)
+                    M[iu, iv], b[iu, iv] = m, bb
+                    sp.append(s)
+            sep = variance_decomposition(M)
+            Mu = M.mean(axis=1)
+            e1 = effective_rank(Mu)
+            e1.update(intrinsic_dim_twonn(Mu))
+            e2 = None
+            if triples:
+                e2 = functoriality_residual(
+                    {n: Mu[n] for n in range(len(Mu))},
+                    {n: b.mean(axis=1)[n] for n in range(len(Mu))},
+                    triples, beta=beta)
+            out["sep_full"][i, j] = sep["sep_full"]
+            out["frac_u"][i, j] = sep["frac_u"]
+            out["pr"][i, j] = e1["pr"]
+            out["id_twonn"][i, j] = e1["id_twonn"]
+            out["rho_ratio"][i, j] = (e2 or {}).get("rho_ratio", np.nan)
+            out["spread"][i, j] = float(np.mean(sp))
+            verdicts[i][j] = verdict(sep, e1, e2, p_true=p_true,
+                                     N_u=len(prompts))["verdict"]
+            if cache:
+                rec = dict(l_in=li, l_out=lo, verdict=verdicts[i][j],
+                           **{k: float(out[k][i, j]) for k in keys})
+                with open(cache, "a") as fh:
+                    fh.write(json.dumps(rec) + "\n")
+            if progress:
+                progress(li, lo)
 
-    def __init__(self, model, B_in, R_out, eps=1e-4):
-        self.m, self.B, self.R, self.eps = model, B_in, R_out, eps
-        self.n_layers = model.L
-
-    def _fwd(self, ids, x_pos, c, patch):
-        from eval_gauge import _rmsnorm, _softmax, _gelu
-        m = self.m
-        e = m.E[ids].copy()
-        e[x_pos] = c @ self.B
-        T = len(ids)
-        h = e + m.P[:T]
-        hs = [h]
-        mask = np.triu(np.full((T, T), -1e9), 1)
-        for l in range(m.L):
-            if patch is not None and patch[0] == l:
-                h = h.copy()
-                h[patch[1]] = h[patch[1]] + patch[2]
-            hn = _rmsnorm(h)
-            outs = []
-            for hd in range(m.H):
-                q, k, v = hn @ m.Wq[l, hd], hn @ m.Wk[l, hd], hn @ m.Wv[l, hd]
-                a = _softmax(q @ k.T / np.sqrt(m.dh) + mask)
-                outs.append(a @ v)
-            h = h + np.concatenate(outs, axis=-1) @ m.Wo[l]
-            h = h + _gelu(_rmsnorm(h) @ m.W1[l]) @ m.W2[l]
-            hs.append(h)
-        return hs
-
-    def M(self, ids, x_pos, read_pos, layer, c0=None, patch=None):
-        from eval_gauge import _rmsnorm
-        k = self.B.shape[0]
-        c0 = np.zeros(k) if c0 is None else np.asarray(c0, float)
-
-        def f(c):
-            hs = self._fwd(ids, x_pos, c, patch)
-            return self.R @ _rmsnorm(hs[layer])[read_pos]
-
-        cols = []
-        for i in range(k):
-            cp, cm = c0.copy(), c0.copy()
-            cp[i] += self.eps
-            cm[i] -= self.eps
-            cols.append((f(cp) - f(cm)) / (2 * self.eps))
-        M = np.stack(cols, axis=1)
-        return M, f(c0) - M @ c0
-
-    def head_out(self, ids, layer, pos):
-        from eval_gauge import _rmsnorm, _softmax
-        m = self.m
-        hs = self._fwd(ids, 0, np.zeros(self.B.shape[0]), None)
-        h = hs[layer]
-        hn = _rmsnorm(h)
-        T = len(ids)
-        mask = np.triu(np.full((T, T), -1e9), 1)
-        outs = []
-        for hd in range(m.H):
-            q, k, v = hn @ m.Wq[layer, hd], hn @ m.Wk[layer, hd], hn @ m.Wv[layer, hd]
-            a = _softmax(q @ k.T / np.sqrt(m.dh) + mask)
-            z = np.zeros((T, m.d))
-            z[:, hd * m.dh:(hd + 1) * m.dh] = a @ v
-            outs.append((z @ m.Wo[layer])[pos])
-        return np.stack(outs)
-
-
-# ---------------------------------------------------------------- L1 layer scan
-
-def layer_scan(probe, prompts, layers=None, triples=None, c0_of=None):
-    """prompts: list over u of list over v of (ids, x_pos, read_pos).
-
-    c0_of(v) -> expansion point in value coordinates. MUST be supplied and MUST
-    depend on v: with a common c0 the x-slot embedding is identical for every v,
-    Sep is vacuously 0, and the factorisation test passes for any model at all.
-    This is the easiest way to get a meaningless pass out of this whole probe.
-
-    Returns per-layer dict of sep_full / pr / id_twonn / rho_ratio."""
-    layers = layers or list(range(1, probe.n_layers + 1))
-    if c0_of is None:
-        raise ValueError("c0_of is required: see the docstring. Pass a one-hot "
-                         "at the argument token, or the probe is vacuous.")
-    rows = []
-    for l in layers:
-        M = np.asarray([[probe.M(*p, layer=l, c0=c0_of(iv))[0]
-                         for iv, p in enumerate(row)] for row in prompts])
-        b = np.asarray([[probe.M(*p, layer=l, c0=c0_of(iv))[1]
-                         for iv, p in enumerate(row)] for row in prompts])
-        sep = variance_decomposition(M)
-        Mu = M.mean(axis=1)
-        e1 = effective_rank(Mu)
-        e1.update(intrinsic_dim_twonn(Mu))
-        e2 = None
-        if triples:
-            e2 = functoriality_residual({i: Mu[i] for i in range(len(Mu))},
-                                        {i: b.mean(axis=1)[i] for i in range(len(Mu))},
-                                        triples)
-        rows.append(dict(layer=l, sep_full=sep["sep_full"], frac_u=sep["frac_u"],
-                         pr=e1["pr"], id_twonn=e1["id_twonn"],
-                         rho_ratio=(e2 or {}).get("rho_ratio", float("nan"))))
-    return rows
+    out["layers_in"], out["layers_out"] = layers_in, layers_out
+    out["verdicts"] = verdicts
+    return out
 
 
-def apply_depth(rows, sep_thresh=0.25):
-    """Shallowest layer where the operator has separated. None = never."""
-    for r in rows:
-        if r["sep_full"] < sep_thresh:
-            return r["layer"]
-    return None
+def format_scan(res, key="sep_full", fmt="{:7.2f}"):
+    li, lo = res["layers_in"], res["layers_out"]
+    lines = [f"  {key}", "  l_in\\l_out " + "".join(f"{l:>8}" for l in lo)]
+    for i, a in enumerate(li):
+        row = "".join("       ." if np.isnan(v) else fmt.format(v)
+                      for v in res[key][i])
+        lines.append(f"  {a:>10} " + row)
+    return "\n".join(lines)
 
 
-# ---------------------------------------------------------------- L2 position
+def apply_band(res, sep_thresh=0.25, dim_lo=None, dim_hi=None):
+    """The (l_in, l_out) cells where the operator has both separated from the
+    argument and reached a plausible dimension. Empty = no apply depth."""
+    ok = []
+    S, D = res["sep_full"], res["id_twonn"]
+    for i, a in enumerate(res["layers_in"]):
+        for j, c in enumerate(res["layers_out"]):
+            if np.isnan(S[i, j]) or c == a:
+                continue
+            if S[i, j] >= sep_thresh:
+                continue
+            if dim_lo is not None and not (dim_lo <= D[i, j] <= dim_hi):
+                continue
+            ok.append((a, c, float(S[i, j]), float(D[i, j])))
+    return ok
 
-def position_transfer(probe, ids_of, x_positions, read_pos, layer, codes_u):
-    """Same code u, argument placed at different indices in a padded template.
 
-    ids_of(u, x_pos) -> ids with the x-slot at that index and everything else
-    identical. Returns mean relative disagreement between positions, and the
-    null from comparing different u at the same position."""
+# ------------------------------------------------------------------ position
+
+def position_transfer(probe, ids_of, x_positions, read_pos, l_in, l_out, ep,
+                      codes_u):
+    """Same code u, argument at different indices. ids_of(u, x_pos) -> ids."""
     Ms = {}
     for u in codes_u:
         for p in x_positions:
-            Ms[(u, p)] = probe.M(ids_of(u, p), p, read_pos, layer)[0]
-
+            Ms[(u, p)] = probe.M(ids_of(u, p), p, read_pos, l_in, l_out, ep, v=0)[0]
     same, diff = [], []
     for u in codes_u:
         for i, p in enumerate(x_positions):
@@ -197,63 +182,59 @@ def position_transfer(probe, ids_of, x_positions, read_pos, layer, codes_u):
                 position_independent=bool(s / (d + EPS) < 0.3))
 
 
-# ---------------------------------------------------------------- L3 FV portability
+# ------------------------------------------------------------------ FV portability
 
 def extract_fv(probe, prompts_u, layer, heads=None, pos=-1):
     """theta(u) = mean over prompts of the summed contribution of selected heads
-    at `pos`, following Todd et al. heads=None uses all heads."""
+    at `pos`, as in Todd et al."""
     acc = None
-    for (ids, x_pos, read_pos) in prompts_u:
-        ho = probe.head_out(ids, layer, pos % len(ids))
+    for ids in prompts_u:
+        ho = probe.head_out(ids, layer, pos)
         sel = ho if heads is None else ho[heads]
         v = sel.sum(axis=0)
         acc = v if acc is None else acc + v
     return acc / len(prompts_u)
 
 
-def fv_transfer_matrix(probe, prompts, blank_prompts, codes_u, read_pos,
-                       readout_layer=None, src_layers=None, dst_layers=None,
+def fv_transfer_matrix(probe, prompts, blank_prompts, x_pos, read_pos, ep,
+                       l_in, l_out, src_layers=None, dst_layers=None,
                        heads=None, scale=1.0):
-    """transfer[i, j] over (src layer i, dst layer j).
+    """gain[src, dst] = transfer - null.
 
-    blank_prompts[u_index] : prompts with the f-slot replaced by a neutral token,
-    so that whatever makes the operator appear has to come from the injected FV.
+    null (the same patch built from a different u) is mandatory: if the M(u) are
+    all similar, transfer is trivially high and means nothing. A diagonal-only
+    gain says the FV is a positional artefact of the layer it was read from; a
+    broad off-diagonal plateau says u is a first-class value that survives
+    relocation.
+    """
+    L = probe.n_layers
+    src_layers = list(src_layers if src_layers is not None else range(1, L))
+    dst_layers = list(dst_layers if dst_layers is not None else range(1, L))
 
-    Returns dict with `transfer` (n_src, n_dst), `null` (same shape), and
-    `ratio` = (1 - null) normalised gain. ratio near 0 means the FV carried
-    nothing beyond what any FV would carry."""
-    readout_layer = readout_layer or probe.n_layers
-    src_layers = src_layers or list(range(1, probe.n_layers))
-    dst_layers = dst_layers or list(range(1, probe.n_layers))
-
-    M_ref = {}
-    for iu, u in enumerate(codes_u):
-        ids, x_pos, rp = prompts[iu][0]
-        M_ref[iu] = probe.M(ids, x_pos, rp, readout_layer)[0]
-
-    n_s, n_d = len(src_layers), len(dst_layers)
-    T = np.zeros((n_s, n_d))
-    N = np.zeros((n_s, n_d))
+    M_ref = {iu: probe.M(prompts[iu][0], x_pos, read_pos, l_in, l_out, ep, v=0)[0]
+             for iu in range(len(prompts))}
+    T = np.zeros((len(src_layers), len(dst_layers)))
+    N = np.zeros_like(T)
     for si, ls in enumerate(src_layers):
         fvs = {iu: extract_fv(probe, prompts[iu], ls, heads)
-               for iu in range(len(codes_u))}
+               for iu in range(len(prompts))}
         for di, ld in enumerate(dst_layers):
             hit, null = [], []
-            for iu in range(len(codes_u)):
-                ids, x_pos, rp = blank_prompts[iu][0]
-                Mp = probe.M(ids, x_pos, rp, readout_layer,
-                             patch=(ld, rp, scale * fvs[iu]))[0]
+            for iu in range(len(prompts)):
+                ids = blank_prompts[iu][0]
                 ref = M_ref[iu]
+                Mp = probe.M(ids, x_pos, read_pos, l_in, l_out, ep, v=0,
+                             patch=(ld, read_pos, scale * fvs[iu]))[0]
                 hit.append(1 - np.linalg.norm(Mp - ref) / (np.linalg.norm(ref) + EPS))
-                jw = (iu + 1) % len(codes_u)
-                Mn = probe.M(ids, x_pos, rp, readout_layer,
-                             patch=(ld, rp, scale * fvs[jw]))[0]
+                jw = (iu + 1) % len(prompts)
+                Mn = probe.M(ids, x_pos, read_pos, l_in, l_out, ep, v=0,
+                             patch=(ld, read_pos, scale * fvs[jw]))[0]
                 null.append(1 - np.linalg.norm(Mn - ref) / (np.linalg.norm(ref) + EPS))
-            T[si, di] = np.mean(hit)
-            N[si, di] = np.mean(null)
+            T[si, di], N[si, di] = np.mean(hit), np.mean(null)
+    g = T - N
+    bi = int(np.argmax(g))
     return dict(src_layers=src_layers, dst_layers=dst_layers,
-                transfer=T, null=N, gain=T - N,
-                best=dict(zip(("src", "dst", "gain"),
-                              (src_layers[int(np.argmax(T - N) // n_d)],
-                               dst_layers[int(np.argmax(T - N) % n_d)],
-                               float((T - N).max())))))
+                transfer=T, null=N, gain=g,
+                best=dict(src=src_layers[bi // len(dst_layers)],
+                          dst=dst_layers[bi % len(dst_layers)],
+                          gain=float(g.max())))
