@@ -40,6 +40,7 @@ class PathCtl:
     """Per-layer overrides applied during a forward pass."""
     freeze_mlp_out: Dict[int, torch.Tensor] = field(default_factory=dict)
     freeze_attn_probs: Dict[int, torch.Tensor] = field(default_factory=dict)
+    freeze_values: Dict[int, torch.Tensor] = field(default_factory=dict)
     ablate_mlp: Set[int] = field(default_factory=set)      # replace MLP out by mean_mlp
     mean_mlp: Dict[int, torch.Tensor] = field(default_factory=dict)
     capture: bool = False
@@ -106,6 +107,12 @@ class Block(nn.Module):
         B, T, D = x.shape
         hx = self.ln1(x)
         q, k, v = self._split(self.wq(hx)), self._split(self.wk(hx)), self._split(self.wv(hx))
+        if ctl.capture:
+            cache.setdefault("values", {})[self.layer] = v.detach()
+        if self.layer in ctl.freeze_values:
+            v = ctl.freeze_values[self.layer]
+            if v.shape[0] != B:
+                v = v.expand(B, -1, -1, -1)
         if self.layer in ctl.freeze_attn_probs:
             probs = ctl.freeze_attn_probs[self.layer]
             if probs.shape[0] != B:
@@ -175,11 +182,37 @@ def capture_reference(model, ids, vals, out_pos) -> dict:
     return cache
 
 
+#: Which of the three v-carrying paths each mode FREEZES at the reference.
+#: Freezing a path detaches it, so v cannot flow through it.  The argument v
+#: reaches the <OUT> positions only via attention (the <NUM> residual itself is
+#: at a different position), so freezing all three must drive dF/dv to zero --
+#: mode 'frozen' exists to check exactly that, and a nonzero Jacobian there
+#: means the freezing is leaking.
+#:
+#:   one path removed  -> noA, noV, noMLP   (directly comparable: same count)
+#:   one path left     -> mlpOnly, patOnly, val
+PATH_FREEZE = {
+    "full":    (),
+    "noA":     ("attn_probs",),
+    "noV":     ("values",),
+    "noMLP":   ("mlp_out",),
+    "val":     ("attn_probs", "mlp_out"),            # pure value path
+    "patOnly": ("values", "mlp_out"),                # pure pattern path
+    "mlpOnly": ("attn_probs", "values"),             # pure MLP path
+    "frozen":  ("attn_probs", "values", "mlp_out"),  # validation: must give dF/dv = 0
+}
+
+_FIELD = {"attn_probs": "freeze_attn_probs",
+          "values": "freeze_values",
+          "mlp_out": "freeze_mlp_out"}
+
+
 def ctl_for(mode: str, ref: dict, n_layer: int) -> PathCtl:
-    """mode in {'full','noMLP','noA','val'}"""
+    """Build a PathCtl freezing the paths PATH_FREEZE assigns to `mode`."""
+    if mode not in PATH_FREEZE:
+        raise ValueError(f"unknown path mode {mode!r}; "
+                         f"choose from {sorted(PATH_FREEZE)}")
     ctl = PathCtl()
-    if mode in ("noMLP", "val"):
-        ctl.freeze_mlp_out = {l: ref["mlp_out"][l] for l in range(n_layer)}
-    if mode in ("noA", "val"):
-        ctl.freeze_attn_probs = {l: ref["attn_probs"][l] for l in range(n_layer)}
+    for key in PATH_FREEZE[mode]:
+        setattr(ctl, _FIELD[key], {l: ref[key][l] for l in range(n_layer)})
     return ctl

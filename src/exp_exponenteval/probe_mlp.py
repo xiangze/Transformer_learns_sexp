@@ -43,14 +43,18 @@ Usage
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 
 import numpy as np
 import torch
 
-from model_num import ModelCfg, NumTransformer, PathCtl, capture_reference, ctl_for
-from sexp_cont import (N_DIM, compose, encode_with_v, num_positions, out_positions,
-                       program_matrix, sample_composable_pair, sample_program)
+from model_num import (PATH_FREEZE, ModelCfg, NumTransformer, PathCtl,
+                       capture_reference, ctl_for)
+from sexp_cont import (GRID, LANG, N_DIM, compose, encode_with_v, n_programs,
+                       num_positions, out_positions, program_matrix,
+                       sample_composable_pair, sample_program)
 
 # ==========================================================================
 # invariant statistics (numpy only -- mirrors eval_common.py conventions)
@@ -149,6 +153,24 @@ def sep_inv(M: np.ndarray, pairs: int = 64, seed: int = 0) -> float:
     return float(np.mean(acc))
 
 
+def sample_v(rng, n_v: int, dist: str = "gauss") -> np.ndarray:
+    """Probe points for v.  MUST match the model's training support.
+
+    A grid-trained (lookup) model probed at gauss points is evaluated off
+    support: between grid nodes it interpolates, so dF/dv picks up the
+    interpolation wobble and sep_inv fires for a reason that has nothing to do
+    with whether the model is a lookup table.  Report the scale-matched number
+    too before attributing a high sep_inv to lookup structure.
+    """
+    if dist == "gauss":
+        return rng.normal(size=(n_v, N_DIM))
+    if dist == "grid":
+        return rng.choice(GRID, size=(n_v, N_DIM))
+    if dist == "gridjit":
+        return rng.choice(GRID, size=(n_v, N_DIM)) + 0.02 * rng.normal(size=(n_v, N_DIM))
+    raise ValueError(dist)
+
+
 def null_expectations(eps: float) -> dict:
     """What a GENUINELY functorial model with Jacobian error `eps` should show.
 
@@ -232,7 +254,32 @@ def oracle(n_u=48, n_v=12, seed=0):
 # model-side extraction
 # ==========================================================================
 def load_model(path, device):
+    if not os.path.exists(path):
+        hint = ""
+        if "lookup" in path:
+            hint = ("\nThis one is the memorizable lookup control; build it with\n"
+                    "  SEXP_N_ANGLE=4 SEXP_MAX_DEPTH=2 python train_cont.py --mode grid \\\n"
+                    "      --steps 50000 --bsz 512 --lr 1e-3 --save-every 5000 \\\n"
+                    f"      --out {path}")
+        near = sorted(glob.glob("*.pt") + glob.glob("*/*.pt"))
+        raise SystemExit(
+            f"no such checkpoint: {path}\n"
+            f"checkpoints that do exist here: {near if near else '(none)'}"
+            f"{hint}\nTrain it first (make_ckpts.sh builds the whole matched set), "
+            "or point --ckpt at one of the above.")
     ck = torch.load(path, map_location=device, weights_only=False)
+    saved = ck.get("lang")
+    if saved is None:
+        print(f"  WARNING: {path} has no language fingerprint (trained before the "
+              f"SEXP_* override was added); assuming it matches the current one.")
+    elif saved != LANG:
+        diff = {k: (saved.get(k), LANG.get(k)) for k in set(saved) | set(LANG)
+                if saved.get(k) != LANG.get(k)}
+        raise SystemExit(
+            f"language mismatch for {path}: (checkpoint, current) = {diff}\n"
+            f"Re-run this probe with the same SEXP_* environment variables used "
+            f"for training, e.g.  SEXP_N_ANGLE={saved.get('N_ANGLE')} "
+            f"SEXP_MAX_DEPTH={saved.get('MAX_DEPTH')} python probe_mlp.py ...")
     model = NumTransformer(ModelCfg(**ck["cfg"])).to(device)
     model.load_state_dict(ck["state"])
     model.eval()
@@ -336,7 +383,10 @@ def functoriality(model, out_pos, num_pos, device, n_pairs, v0, seed, path="full
         spec.append(rho_spectral(Mab, Ma, Mb))
         lin_gt.append(rho_linear(program_matrix(ab),
                                  program_matrix(a), program_matrix(b)))
-    return (float(np.mean(lin)), float(np.nanmean(spec)), float(np.mean(lin_gt)))
+    spec_ok = [x for x in spec if np.isfinite(x)]
+    return (float(np.mean(lin)),
+            float(np.mean(spec_ok)) if spec_ok else float('nan'),
+            float(np.mean(lin_gt)))
 
 
 # ==========================================================================
@@ -347,8 +397,24 @@ def main():
     ap.add_argument("--n-u", type=int, default=48)
     ap.add_argument("--n-v", type=int, default=12)
     ap.add_argument("--n-pairs", type=int, default=32)
-    ap.add_argument("--paths", default="full,noMLP,noA,val")
+    ap.add_argument("--paths", default="full,noA,noV,noMLP,frozen",
+                    help="comma-separated path conditions. 'noA'/'noV'/'noMLP' each "
+                         "remove exactly ONE v-path, so their sep_excess values are "
+                         "directly comparable; 'val'/'patOnly'/'mlpOnly' leave exactly "
+                         "one path live; 'frozen' freezes all three and must give "
+                         "dF/dv ~ 0 -- it is the validation that freezing does not "
+                         f"leak. Available: {sorted(PATH_FREEZE)}")
     ap.add_argument("--mlp-sweep", action="store_true")
+    ap.add_argument("--v-dist", default="gauss",
+                    choices=["gauss", "grid", "gridjit"],
+                    help="where the probe draws v from. 'gauss' = N(0,1), which is "
+                         "the --mode eval training distribution. 'grid' = exactly "
+                         "the GRID points used by --mode grid. 'gridjit' = grid "
+                         "points plus small jitter, so the Jacobian is taken near "
+                         "but not on the training support. A grid-trained model "
+                         "probed with 'gauss' is being probed OFF SUPPORT, which "
+                         "inflates both |M-GT| and sep_inv; always report the "
+                         "scale-matched number alongside it.")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--json", default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -369,10 +435,22 @@ def main():
     num_pos = num_positions()
     rng = np.random.default_rng(args.seed)
     progs = [sample_program(rng) for _ in range(args.n_u)]
-    vs = rng.normal(size=(args.n_v, N_DIM))
-    results = {"ckpt": args.ckpt, "trained_mode": ck.get("mode"), "paths": {}}
+    vs = sample_v(rng, args.n_v, args.v_dist)
+    results_vdist = args.v_dist
+    results = {"ckpt": args.ckpt, "trained_mode": ck.get("mode"),
+               "v_dist": args.v_dist, "lang": ck.get("lang"), "paths": {}}
 
-    print(f"\n--- {args.ckpt}  (trained mode: {ck.get('mode')}, steps: {ck.get('steps')}) ---")
+    print(f"\n--- {args.ckpt}  (trained mode: {ck.get('mode')}, steps: {ck.get('steps')}, "
+          f"probed at v~{args.v_dist}) ---")
+    if ck.get("mode") == "grid" and args.v_dist == "gauss":
+        print("  WARNING: grid-trained model probed at gauss points -> OFF SUPPORT.\n"
+              "  |M-GT| and sep_inv are both inflated by interpolation wobble, not\n"
+              "  only by lookup structure.  Re-run with --v-dist grid (and gridjit)\n"
+              "  and compare before attributing a high sep_inv to lookup.")
+    if ck.get("mode") in ("eval", "ignore_code") and args.v_dist != "gauss":
+        print(f"  NOTE: {ck.get('mode')}-trained model probed at {args.v_dist}; its\n"
+              "  training support was gauss, so this is the scale-matched comparison\n"
+              "  run, not the primary one.")
     for path in args.paths.split(","):
         M = extract_grid(model, progs, vs, out_pos, num_pos, device, path=path)
         Wy, Wx = whiteners(M.reshape(-1, N_DIM, N_DIM))
@@ -380,6 +458,10 @@ def main():
                        for i in range(len(progs))])
         rl, rs, rgt = functoriality(model, out_pos, num_pos, device,
                                     args.n_pairs, vs[0], args.seed, path)
+        mnorm = float(np.mean([np.linalg.norm(M[i, 0]) for i in range(len(progs))]))
+        if path == args.paths.split(",")[0]:
+            norm_ref = mnorm
+        relnorm = mnorm / (norm_ref + 1e-12)
         fit = float(np.mean([np.linalg.norm(M[i, 0] - program_matrix(progs[i]))
                              / np.linalg.norm(program_matrix(progs[i]))
                              for i in range(len(progs))]))
@@ -393,17 +475,24 @@ def main():
             rho_spec=round(rs, 4),
             rho_oracle=round(rgt, 6),
             fit=round(fit, 5),
+            relnorm=round(relnorm, 4),
             **{k: round(float(v), 5) for k, v in null.items()},
         )
         # excess over the functorial-with-noise null: >1 means genuinely non-functorial
         row["rho_excess"] = round(rl / (null["rho_lin_null"] + 1e-12), 2)
         row["sep_excess"] = round(row["sep_inv"] / (null["sep_inv_null"] + 1e-12), 2)
         results["paths"][path] = row
-        print(f"  path={path:6s} |M-GT|={row['fit']:.5f}  Sep={row['Sep']:.5f}  "
-              f"sep_inv={row['sep_inv']:.5f} (null {null['sep_inv_null']:.5f}, "
-              f"x{row['sep_excess']})  rho_lin={row['rho_lin']:.4f} "
-              f"(null {null['rho_lin_null']:.4f}, x{row['rho_excess']})  "
-              f"id_op={row['id_op']:5.2f}")
+        flag = ""
+        if path == "frozen":
+            flag = "   <- VALIDATION: all paths frozen, must be ~0"
+        elif relnorm < 0.15:
+            flag = (f"   <- NO SIGNAL (relnorm={relnorm:.3f}): this condition "
+                    "removed the operator, so sep_inv/rho here are noise ratios, "
+                    "not v-dependence")
+        print(f"  path={path:7s} relnorm={relnorm:.3f} |M-GT|={row['fit']:.5f}  "
+              f"sep_inv={row['sep_inv']:.5f} (x{row['sep_excess']})  "
+              f"rho_lin={row['rho_lin']:.4f} (x{row['rho_excess']})  "
+              f"id_op={row['id_op']:5.2f}{flag}")
 
     # rule 4: MLP neuron coefficients -- localization only, not evidence
     C = np.stack([[ffn_coeffs(model, u, v, out_pos, num_pos, device) for v in vs]
@@ -424,7 +513,10 @@ def main():
             fit = float(np.mean([np.linalg.norm(M[i, 0] - program_matrix(progs[i]))
                                  / np.linalg.norm(program_matrix(progs[i]))
                                  for i in range(len(progs))]))
-            results["mlp_sweep"][l] = dict(Sep=round(sep_eta2(Mw), 4), fit=round(fit, 4))
+            results["mlp_sweep"][l] = dict(Sep=round(sep_eta2(Mw), 4),
+                                           sep_inv=round(sep_inv(Mw, pairs=24,
+                                                                 seed=args.seed), 5),
+                                           fit=round(fit, 4))
             print(f"    ablate MLP[{l}]  Sep={sep_eta2(Mw):.4f}  |M-GT|={fit:.4f}")
 
     if args.json:
