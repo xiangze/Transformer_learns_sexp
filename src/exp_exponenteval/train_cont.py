@@ -13,13 +13,25 @@ The three data modes are the controls the probe is calibrated against:
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 import numpy as np
 import torch
 
 from model_num import ModelCfg, NumTransformer
-from sexp_cont import make_batch, out_positions
+from sexp_cont import LANG, make_batch, n_programs, out_positions
+
+
+def save(model, cfg, args, step, path):
+    """Checkpoint, carrying the language fingerprint so the probe can verify it."""
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)   # so --out sub/dir/x.pt cannot die mid-run
+    torch.save({"cfg": cfg.__dict__, "state": model.state_dict(),
+                "mode": args.mode, "steps": step, "lang": LANG,
+                "seed": args.seed}, path)
+    print("saved", path, flush=True)
 
 
 def evaluate(model, rng, out_pos, device, mode, n=16, bsz=128):
@@ -50,6 +62,10 @@ def main():
     ap.add_argument("--numemb", default="both", choices=["linear", "fourier", "both"])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="ckpt.pt")
+    ap.add_argument("--save-every", type=int, default=0,
+                    help="also save an intermediate checkpoint every N steps, as "
+                         "<out-stem>_<step>.pt -- gives the series the probe needs "
+                         "for checkpoint probing across training")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
@@ -65,6 +81,12 @@ def main():
     model = NumTransformer(cfg).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=max(args.steps, 1))
+
+    stem = args.out[:-3] if args.out.endswith(".pt") else args.out
+    print(f"language: {LANG}  ({n_programs()} distinct programs)", flush=True)
+    if args.steps == 0:                       # random-init floor
+        save(model, cfg, args, 0, args.out)
+        return
 
     t0 = time.time()
     for step in range(args.steps):
@@ -85,10 +107,11 @@ def main():
             print(f"step {step+1:6d}  train {loss.item():.5f}  "
                   f"val[{args.mode}] {mse:.5f}  val[eval] {held:.5f}  "
                   f"({time.time()-t0:.0f}s)", flush=True)
+        if args.save_every and (step + 1) % args.save_every == 0 \
+                and (step + 1) != args.steps:
+            save(model, cfg, args, step + 1, f"{stem}_{step+1}.pt")
 
-    torch.save({"cfg": cfg.__dict__, "state": model.state_dict(),
-                "mode": args.mode, "steps": args.steps}, args.out)
-    print("saved", args.out)
+    save(model, cfg, args, args.steps, args.out)
 
 
 if __name__ == "__main__":

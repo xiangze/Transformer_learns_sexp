@@ -34,10 +34,19 @@ import numpy as np
 # --------------------------------------------------------------------------
 # language constants
 # --------------------------------------------------------------------------
-N_DIM = 3
-N_ANGLE = 12
-PLANES: List[Tuple[int, int]] = [(0, 1), (0, 2), (1, 2)]
-MAX_DEPTH = 3
+import os
+
+# Overridable from the environment so a memorization-feasible "lookup" control
+# can be built without forking this file.  A small program set is what makes a
+# table-based solution cheaper than learning the composition:
+#     SEXP_N_ANGLE=4 SEXP_MAX_DEPTH=1   ->  3*3 + 3 = 12 programs
+# CAUTION: these change SEQ_LEN and VOCAB_SIZE, so a checkpoint is only
+# loadable under the same settings.  They are recorded in the checkpoint and
+# checked on load (see LANG and probe_mlp.load_model).
+N_DIM = int(os.environ.get("SEXP_N_DIM", 3))
+N_ANGLE = int(os.environ.get("SEXP_N_ANGLE", 12))
+MAX_DEPTH = int(os.environ.get("SEXP_MAX_DEPTH", 3))
+PLANES: List[Tuple[int, int]] = [(i, j) for i in range(N_DIM) for j in range(i + 1, N_DIM)]
 
 Prim = Tuple  # ('rot', i, j, a) | ('refl', i)
 Program = Tuple[Prim, ...]
@@ -147,6 +156,12 @@ def sample_program(rng: np.random.Generator, depth: int | None = None) -> Progra
 
 def sample_composable_pair(rng: np.random.Generator) -> Tuple[Program, Program]:
     """(u, u') with len(u) + len(u') <= MAX_DEPTH, so u o u' is in-distribution."""
+    if MAX_DEPTH < 2:
+        raise ValueError(
+            f"MAX_DEPTH={MAX_DEPTH} admits no composable pairs, so the "
+            "functoriality residual rho is undefined for this language. "
+            "Use SEXP_MAX_DEPTH>=2 (a lookup control wants a small N_ANGLE, "
+            "not depth 1).")
     d1 = int(rng.integers(1, MAX_DEPTH))
     d2 = int(rng.integers(1, MAX_DEPTH - d1 + 1))
     return sample_program(rng, d1), sample_program(rng, d2)
@@ -208,6 +223,18 @@ def encode_with_v(u: Program, v: Sequence[float]) -> Tuple[np.ndarray, np.ndarra
     vals = np.zeros(SEQ_LEN, dtype=np.float32)
     vals[nm] = np.asarray(v, dtype=np.float32)
     return ids, vals
+
+
+#: language fingerprint stored in every checkpoint so a probe cannot silently
+#: load a model trained under different language constants
+LANG = dict(N_DIM=N_DIM, N_ANGLE=N_ANGLE, MAX_DEPTH=MAX_DEPTH,
+            SEQ_LEN=SEQ_LEN, VOCAB_SIZE=VOCAB_SIZE, n_prims=len(PRIMS))
+
+
+def n_programs() -> int:
+    """Total distinct programs -- how memorizable the language is."""
+    p = len(PRIMS)
+    return sum(p ** d for d in range(1, MAX_DEPTH + 1))
 
 
 def num_positions() -> np.ndarray:
