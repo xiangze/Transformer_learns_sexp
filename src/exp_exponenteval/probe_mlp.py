@@ -53,6 +53,7 @@ import torch
 from model_num import (PATH_FREEZE, ModelCfg, NumTransformer, PathCtl,
                        capture_reference, ctl_for)
 from sexp_cont import (GRID, LANG, N_DIM, compose, encode_with_v, n_programs,
+                       sample_distinct_programs,
                        num_positions, out_positions, program_matrix,
                        sample_composable_pair, sample_program)
 
@@ -137,10 +138,18 @@ def sep_inv(M: np.ndarray, pairs: int = 64, seed: int = 0) -> float:
     sort-order flips between near-degenerate eigenvalues; sep_inv stays linear
     in the leakage amplitude over at least three decades (sep_inv ~ 0.75 eps_v).
     """
+    v = sep_inv_pairs(M, pairs=pairs, seed=seed)
+    return float(np.mean(v)) if v.size else float("nan")
+
+
+def sep_inv_pairs(M: np.ndarray, pairs: int = 64, seed: int = 0) -> np.ndarray:
+    """The per-(u,u') values sep_inv averages.  Returned separately so the
+    spread across pairs can be bootstrapped: a single mean over 24 pairs gave
+    no way to tell a x4.76 from a x1.72."""
     rng = np.random.default_rng(seed)
     n_u, n_v = M.shape[0], M.shape[1]
     if n_u < 2 or n_v < 2:
-        return float("nan")
+        return np.array([])
     acc = []
     for _ in range(pairs):
         i, j = rng.choice(n_u, size=2, replace=False)
@@ -150,7 +159,18 @@ def sep_inv(M: np.ndarray, pairs: int = 64, seed: int = 0) -> float:
             C.append(charpoly_inv(T))
         C = np.stack(C)
         acc.append(np.mean(C.std(0) / (np.abs(C.mean(0)) + 1.0)))
-    return float(np.mean(acc))
+    return np.asarray(acc)
+
+
+def boot_ci(x, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0):
+    """Percentile bootstrap CI of the mean.  Returns (lo, hi)."""
+    x = np.asarray([v for v in np.ravel(x) if np.isfinite(v)])
+    if x.size < 2:
+        return (float("nan"), float("nan"))
+    rng = np.random.default_rng(seed)
+    means = x[rng.integers(0, x.size, size=(n_boot, x.size))].mean(axis=1)
+    return (float(np.quantile(means, alpha / 2)),
+            float(np.quantile(means, 1 - alpha / 2)))
 
 
 def sample_v(rng, n_v: int, dist: str = "gauss") -> np.ndarray:
@@ -169,6 +189,20 @@ def sample_v(rng, n_v: int, dist: str = "gauss") -> np.ndarray:
     if dist == "gridjit":
         return rng.choice(GRID, size=(n_v, N_DIM)) + 0.02 * rng.normal(size=(n_v, N_DIM))
     raise ValueError(dist)
+
+
+def _ci_fields(sep_pairs, rho_pairs, null: dict, seed: int = 0) -> dict:
+    """Bootstrap CIs for the two pair-averaged statistics, as raw values and as
+    excess over the null.  The excess ratio is what a verdict is read off, so
+    its interval is the one that decides whether two conditions differ."""
+    slo, shi = boot_ci(sep_pairs, seed=seed)
+    rlo, rhi = boot_ci(rho_pairs, seed=seed)
+    sn = null["sep_inv_null"] + 1e-12
+    rn = null["rho_lin_null"] + 1e-12
+    return {"sep_inv_lo": round(slo, 5), "sep_inv_hi": round(shi, 5),
+            "sep_excess_lo": round(slo / sn, 2), "sep_excess_hi": round(shi / sn, 2),
+            "rho_lin_lo": round(rlo, 4), "rho_lin_hi": round(rhi, 4),
+            "rho_excess_lo": round(rlo / rn, 2), "rho_excess_hi": round(rhi / rn, 2)}
 
 
 def null_expectations(eps: float) -> dict:
@@ -199,10 +233,47 @@ def rho_spectral(M_uu: np.ndarray, M_u: np.ndarray, M_u2: np.ndarray) -> float:
     return float(np.abs(np.linalg.eigvals(C) - 1.0).mean())
 
 
-def twonn(X: np.ndarray, discard: float = 0.1) -> float:
-    """TwoNN intrinsic dimension (Facco et al.).  X: [N, D]."""
-    N = X.shape[0]
-    if N < 10:
+def op_spread(Ms: np.ndarray) -> float:
+    """Median nearest-neighbour distance within {M(u)}.  Compare against the
+    model's fitting error: when this is not comfortably larger, the operator
+    family is a constant plus noise and its intrinsic dimension measures the
+    NOISE BALL, not the program family.  TwoNN cannot return 0 -- a constant
+    family reads as the ambient dimension (9 for 3x3), which looks like a rich
+    family unless this scale is checked."""
+    X = Ms.reshape(Ms.shape[0], -1)
+    D2 = ((X[:, None, :] - X[None, :, :]) ** 2).sum(-1)
+    np.fill_diagonal(D2, np.inf)
+    nn = np.sqrt(D2.min(1))
+    return float(np.median(nn))
+
+
+def twonn(X: np.ndarray, discard: float = 0.1, dup_tol: float = 0.05) -> float:
+    """TwoNN intrinsic dimension (Facco et al.).  X: [N, D].
+
+    Near-duplicates are removed first, at dup_tol x the median nearest-neighbour
+    distance.  The original absolute 1e-12 filter only caught bit-identical
+    points: two programs denoting the same operator are separated by the model's
+    fitting error, survive that filter, and send mu = r2/r1 to infinity, which
+    drags the estimate toward 0.  With eps = 0.0045 fitting error this turned a
+    true dimension of ~3.7 into 0.65.  Reliable for eps <~ 0.01; beyond that the
+    noise itself merges genuinely distinct operators."""
+    X = np.asarray(X, dtype=float)
+    if X.shape[0] < 10:
+        return float("nan")
+    D2 = ((X[:, None, :] - X[None, :, :]) ** 2).sum(-1)
+    np.fill_diagonal(D2, np.inf)
+    nn = np.sqrt(D2.min(1))
+    pos = nn[nn > 0]
+    thr = max(dup_tol * float(np.median(pos)), 1e-12) if pos.size else 1e-12
+    keep, seen = [], np.zeros(X.shape[0], bool)
+    for i in range(X.shape[0]):
+        if seen[i]:
+            continue
+        keep.append(i)
+        seen |= np.sqrt(D2[i]) < thr
+        seen[i] = True
+    X = X[keep]
+    if X.shape[0] < 10:
         return float("nan")
     D2 = ((X[:, None, :] - X[None, :, :]) ** 2).sum(-1)
     np.fill_diagonal(D2, np.inf)
@@ -210,8 +281,8 @@ def twonn(X: np.ndarray, discard: float = 0.1) -> float:
     ok = d[:, 0] > 1e-12
     mu = np.sort(d[ok, 1] / d[ok, 0])
     n = len(mu)
-    keep = int(n * (1 - discard))
-    mu, Fe = mu[:keep], np.arange(1, keep + 1) / n
+    k = int(n * (1 - discard))
+    mu, Fe = mu[:k], np.arange(1, k + 1) / n
     x, y = np.log(mu), -np.log(1 - Fe)
     return float((x @ y) / (x @ x + 1e-12))
 
@@ -342,7 +413,7 @@ def extract_grid(model, progs, vs, out_pos, num_pos, device, path="full",
             ids = torch.from_numpy(ids_np).unsqueeze(0).to(device)
             vals = torch.from_numpy(vals_np).unsqueeze(0).to(device)
             ref = capture_reference(model, ids, vals, out_pos)
-            ctl = ctl_for(path, ref, n_layer)
+            ctl = ctl_for(path, ref, n_layer, ids=ids)
             ctl.ablate_mlp, ctl.mean_mlp = ctl_base.ablate_mlp, ctl_base.mean_mlp
         else:
             ctl = ctl_base
@@ -360,11 +431,11 @@ def _ctl_per_program(model, u, ref_v, out_pos, device, path):
     if path == "full":
         return None
     ids_np, vals_np = encode_with_v(u, ref_v)
-    ref = capture_reference(model,
-                            torch.from_numpy(ids_np).unsqueeze(0).to(device),
+    ids = torch.from_numpy(ids_np).unsqueeze(0).to(device)
+    ref = capture_reference(model, ids,
                             torch.from_numpy(vals_np).unsqueeze(0).to(device),
                             out_pos)
-    return ctl_for(path, ref, len(model.blocks))
+    return ctl_for(path, ref, len(model.blocks), ids=ids)
 
 
 def functoriality(model, out_pos, num_pos, device, n_pairs, v0, seed, path="full"):
@@ -386,7 +457,8 @@ def functoriality(model, out_pos, num_pos, device, n_pairs, v0, seed, path="full
     spec_ok = [x for x in spec if np.isfinite(x)]
     return (float(np.mean(lin)),
             float(np.mean(spec_ok)) if spec_ok else float('nan'),
-            float(np.mean(lin_gt)))
+            float(np.mean(lin_gt)),
+            np.asarray(lin))
 
 
 # ==========================================================================
@@ -434,7 +506,9 @@ def main():
     out_pos = torch.from_numpy(out_positions()).to(device)
     num_pos = num_positions()
     rng = np.random.default_rng(args.seed)
-    progs = [sample_program(rng) for _ in range(args.n_u)]
+    progs = sample_distinct_programs(rng, args.n_u)
+    if len(progs) < args.n_u:
+        print(f'  NOTE: language supplied only {len(progs)} programs with pairwise\n  distinct operators (asked {args.n_u}).')
     vs = sample_v(rng, args.n_v, args.v_dist)
     results_vdist = args.v_dist
     results = {"ckpt": args.ckpt, "trained_mode": ck.get("mode"),
@@ -456,26 +530,37 @@ def main():
         Wy, Wx = whiteners(M.reshape(-1, N_DIM, N_DIM))
         Mw = np.stack([[whiten(M[i, k], Wy, Wx) for k in range(len(vs))]
                        for i in range(len(progs))])
-        rl, rs, rgt = functoriality(model, out_pos, num_pos, device,
-                                    args.n_pairs, vs[0], args.seed, path)
-        mnorm = float(np.mean([np.linalg.norm(M[i, 0]) for i in range(len(progs))]))
+        rl, rs, rgt, rl_pairs = functoriality(model, out_pos, num_pos, device,
+                                              args.n_pairs, vs[0], args.seed, path)
+        # Average over EVERY probe point, not just v[0].  Taking these at a
+        # single v made |M-GT| and relnorm single-sample estimates, so they
+        # carried the noise of whichever v happened to be drawn first -- and
+        # under --v-dist grid that one point is always a grid node, which is
+        # exactly where a table-like model's local slope is least typical.
+        A_gt = np.stack([program_matrix(p) for p in progs])            # [n_u,m,n]
+        nrm_gt = np.linalg.norm(A_gt, axis=(1, 2))                     # [n_u]
+        per_uv = np.linalg.norm(M - A_gt[:, None], axis=(2, 3)) / nrm_gt[:, None]
+        fit = float(per_uv.mean())
+        fit_sd_v = float(per_uv.mean(axis=0).std())   # spread ACROSS probe points
+        mnorm = float(np.linalg.norm(M, axis=(2, 3)).mean())
         if path == args.paths.split(",")[0]:
             norm_ref = mnorm
         relnorm = mnorm / (norm_ref + 1e-12)
-        fit = float(np.mean([np.linalg.norm(M[i, 0] - program_matrix(progs[i]))
-                             / np.linalg.norm(program_matrix(progs[i]))
-                             for i in range(len(progs))]))
         null = null_expectations(fit)
         row = dict(
             Sep=round(sep_eta2(Mw), 5),
             sep_spec=round(sep_spec(Mw, pairs=24, seed=args.seed), 4),
             sep_inv=round(sep_inv(Mw, pairs=24, seed=args.seed), 5),
-            id_op=round(twonn(M[:, 0].reshape(len(progs), -1)), 3),
+            **_ci_fields(sep_inv_pairs(Mw, pairs=24, seed=args.seed),
+                         rl_pairs, null),
+            id_op=round(twonn(M.mean(axis=1).reshape(len(progs), -1)), 3),
+            op_spread=round(op_spread(M.mean(axis=1)) / (fit + 1e-12), 1),
             rho_lin=round(rl, 4),
             rho_spec=round(rs, 4),
             rho_oracle=round(rgt, 6),
             fit=round(fit, 5),
             relnorm=round(relnorm, 4),
+            fit_sd_v=round(fit_sd_v, 5),
             **{k: round(float(v), 5) for k, v in null.items()},
         )
         # excess over the functorial-with-noise null: >1 means genuinely non-functorial
@@ -489,10 +574,23 @@ def main():
             flag = (f"   <- NO SIGNAL (relnorm={relnorm:.3f}): this condition "
                     "removed the operator, so sep_inv/rho here are noise ratios, "
                     "not v-dependence")
-        print(f"  path={path:7s} relnorm={relnorm:.3f} |M-GT|={row['fit']:.5f}  "
+        void = ""
+        if row["op_spread"] < 3:
+            void = (f" (id_op VOID: op_spread={row['op_spread']:.1f} -- the operator"
+                    " family is a constant plus noise, so id_op is measuring the"
+                    " noise ball)")
+        print(f"  path={path:7s} relnorm={relnorm:.3f} "
+              f"|M-GT|={row['fit']:.5f}+-{row['fit_sd_v']:.3f}  "
               f"sep_inv={row['sep_inv']:.5f} (x{row['sep_excess']})  "
               f"rho_lin={row['rho_lin']:.4f} (x{row['rho_excess']})  "
-              f"id_op={row['id_op']:5.2f}{flag}")
+              f"id_op={row['id_op']:5.2f} (spread x{row['op_spread']:.0f})"
+              f"{void}{flag}")
+        print(f"           sep_inv 95% CI [{row['sep_inv_lo']:.5f}, "
+              f"{row['sep_inv_hi']:.5f}] -> excess [{row['sep_excess_lo']:.2f}, "
+              f"{row['sep_excess_hi']:.2f}]   "
+              f"rho_lin 95% CI [{row['rho_lin_lo']:.4f}, {row['rho_lin_hi']:.4f}] "
+              f"-> excess [{row['rho_excess_lo']:.2f}, {row['rho_excess_hi']:.2f}]"
+              f"   (n_pairs={args.n_pairs})")
 
     # rule 4: MLP neuron coefficients -- localization only, not evidence
     C = np.stack([[ffn_coeffs(model, u, v, out_pos, num_pos, device) for v in vs]
@@ -510,9 +608,10 @@ def main():
             Wy, Wx = whiteners(M.reshape(-1, N_DIM, N_DIM))
             Mw = np.stack([[whiten(M[i, k], Wy, Wx) for k in range(len(vs))]
                            for i in range(len(progs))])
-            fit = float(np.mean([np.linalg.norm(M[i, 0] - program_matrix(progs[i]))
-                                 / np.linalg.norm(program_matrix(progs[i]))
-                                 for i in range(len(progs))]))
+            A_gt = np.stack([program_matrix(p) for p in progs])
+            nrm_gt = np.linalg.norm(A_gt, axis=(1, 2))
+            fit = float((np.linalg.norm(M - A_gt[:, None], axis=(2, 3))
+                         / nrm_gt[:, None]).mean())
             results["mlp_sweep"][l] = dict(Sep=round(sep_eta2(Mw), 4),
                                            sep_inv=round(sep_inv(Mw, pairs=24,
                                                                  seed=args.seed), 5),

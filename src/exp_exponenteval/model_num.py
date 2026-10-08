@@ -41,6 +41,11 @@ class PathCtl:
     freeze_mlp_out: Dict[int, torch.Tensor] = field(default_factory=dict)
     freeze_attn_probs: Dict[int, torch.Tensor] = field(default_factory=dict)
     freeze_values: Dict[int, torch.Tensor] = field(default_factory=dict)
+    #: bool mask over sequence positions; where True the value vectors are taken
+    #: from the reference, where False they stay live.  None freezes every
+    #: position.  This is what separates delivery of the argument (<NUM>
+    #: positions) from delivery of Lambda(u) (every other position).
+    value_mask: Optional[torch.Tensor] = None
     ablate_mlp: Set[int] = field(default_factory=set)      # replace MLP out by mean_mlp
     mean_mlp: Dict[int, torch.Tensor] = field(default_factory=dict)
     capture: bool = False
@@ -110,9 +115,13 @@ class Block(nn.Module):
         if ctl.capture:
             cache.setdefault("values", {})[self.layer] = v.detach()
         if self.layer in ctl.freeze_values:
-            v = ctl.freeze_values[self.layer]
-            if v.shape[0] != B:
-                v = v.expand(B, -1, -1, -1)
+            vref = ctl.freeze_values[self.layer]
+            if vref.shape[0] != B:
+                vref = vref.expand(B, -1, -1, -1)
+            if ctl.value_mask is None:
+                v = vref
+            else:                      # freeze only the masked positions' values
+                v = torch.where(ctl.value_mask.view(1, 1, -1, 1), vref, v)
         if self.layer in ctl.freeze_attn_probs:
             probs = ctl.freeze_attn_probs[self.layer]
             if probs.shape[0] != B:
@@ -200,19 +209,38 @@ PATH_FREEZE = {
     "patOnly": ("values", "mlp_out"),                # pure pattern path
     "mlpOnly": ("attn_probs", "values"),             # pure MLP path
     "frozen":  ("attn_probs", "values", "mlp_out"),  # validation: must give dF/dv = 0
+    # position-selective value freezes: noV stops the whole value path at once,
+    # so it cannot tell u-content from the argument.  These split it.
+    "noVnum":  ("values",),   # freeze values at <NUM> only -> stop ARGUMENT delivery
+    "noVprog": ("values",),   # freeze values everywhere else -> stop Lambda(u) delivery
 }
+
+#: which positions each mode's value freeze applies to (None = all positions)
+VALUE_MASK = {"noVnum": "num", "noVprog": "prog"}
 
 _FIELD = {"attn_probs": "freeze_attn_probs",
           "values": "freeze_values",
           "mlp_out": "freeze_mlp_out"}
 
 
-def ctl_for(mode: str, ref: dict, n_layer: int) -> PathCtl:
-    """Build a PathCtl freezing the paths PATH_FREEZE assigns to `mode`."""
+def ctl_for(mode: str, ref: dict, n_layer: int,
+            ids: Optional[torch.Tensor] = None) -> PathCtl:
+    """Build a PathCtl freezing the paths PATH_FREEZE assigns to `mode`.
+
+    `ids` is needed only by the position-selective modes, which derive their
+    value mask from where the <NUM> tokens sit.
+    """
     if mode not in PATH_FREEZE:
         raise ValueError(f"unknown path mode {mode!r}; "
                          f"choose from {sorted(PATH_FREEZE)}")
     ctl = PathCtl()
     for key in PATH_FREEZE[mode]:
         setattr(ctl, _FIELD[key], {l: ref[key][l] for l in range(n_layer)})
+    which = VALUE_MASK.get(mode)
+    if which is not None:
+        if ids is None:
+            raise ValueError(f"path mode {mode!r} needs `ids` to build its "
+                             "value mask")
+        is_num = (ids.reshape(-1) == NUM_ID)
+        ctl.value_mask = is_num if which == "num" else ~is_num
     return ctl

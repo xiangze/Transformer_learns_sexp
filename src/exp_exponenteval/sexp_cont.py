@@ -154,6 +154,31 @@ def sample_program(rng: np.random.Generator, depth: int | None = None) -> Progra
     return tuple(PRIMS[i] for i in idx)
 
 
+def sample_distinct_programs(rng: np.random.Generator, n: int,
+                             max_tries: int = 200) -> List[Program]:
+    """n programs whose ground-truth matrices are pairwise DISTINCT.
+
+    Different programs routinely denote the same operator (a primitive beside
+    its inverse, a reflection twice), and those collisions are what break the
+    intrinsic-dimension estimate: on exact matrices they are bit-identical and
+    get filtered, but a trained model separates them by its fitting error, so
+    they survive as near-duplicates and drive mu = r2/r1 to infinity.  Removing
+    the collisions here fixes id_op at the source instead of patching the
+    estimator.  Falls back to fewer programs if the language cannot supply n.
+    """
+    seen, out = set(), []
+    for _ in range(n * max_tries):
+        if len(out) == n:
+            break
+        u = sample_program(rng)
+        key = tuple(np.round(program_matrix(u), 6).ravel() + 0.0)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(u)
+    return out
+
+
 def sample_composable_pair(rng: np.random.Generator) -> Tuple[Program, Program]:
     """(u, u') with len(u) + len(u') <= MAX_DEPTH, so u o u' is in-distribution."""
     if MAX_DEPTH < 2:
