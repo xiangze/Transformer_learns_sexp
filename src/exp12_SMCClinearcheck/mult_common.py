@@ -410,6 +410,52 @@ def truncation_curve(coeffs: torch.Tensor, pool: bool = True) -> torch.Tensor:
     return tail.clamp_min(0).sqrt()                          # index p == degree p
 
 
+def exact_trunc_curve(m: int, nodes: int = 32):
+    """
+    The truncation curve an EXACT x^m would produce under this same probe.
+
+    GPU stage A established that no SCALAR read-out of the probe is
+    trustworthy on its own:
+      - deg_matched (tolerance = sqrt(1-R^2)) OVER-reads when the model is very
+        accurate, because the R^2-derived tolerance drops below the probe's own
+        numerical floor (at m=2, 30k steps: tol 2.4e-3 vs floor 4.1e-3 -> it
+        reported degree 10 for a quadratic).
+      - any FIXED tolerance UNDER-reads high m, because the leading Chebyshev
+        coefficient of x^m carries a vanishing share of the energy (an exact
+        x^12 reads as degree 10 at tol 1e-2).
+    Both failures are properties of the estimator, not of the model.  The only
+    sound criterion is to compare the observed curve against THIS reference and
+    ask where, if anywhere, they part company above the model's noise floor.
+    """
+    import math as _m
+    j = torch.arange(nodes, dtype=torch.float64)
+    t = torch.cos(_m.pi * (j + 0.5) / nodes)
+    return truncation_curve(chebyshev_spectrum(t.pow(m)[None, :], nodes), pool=True)
+
+
+def spectrum_fidelity(observed_curve, m: int, nodes: int = 32):
+    """
+    Compare an observed truncation curve with the exact-x^m reference.
+
+    Returns the model's noise floor (the curve's plateau), the lowest degree at
+    which the two curves differ by more than that floor, and the largest such
+    discrepancy.  departure=None means the curves agree everywhere the probe can
+    resolve, i.e. the model realizes x^m faithfully as far as can be seen.
+    """
+    obs = torch.as_tensor(observed_curve, dtype=torch.float64)
+    ref = exact_trunc_curve(m, nodes)[:obs.shape[0]]
+    floor = float(obs[-4:].median())
+    visible = ref > floor                       # below the floor the probe is blind
+    diff = (obs - ref).abs()
+    dep, maxd = None, 0.0
+    if bool(visible.any()):
+        maxd = float(diff[visible].max())
+        bad = torch.nonzero(visible & (diff > floor)).flatten()
+        dep = int(bad[0]) if len(bad) else None
+    return dict(noise_floor=floor, departure=dep, max_dev=maxd,
+                visible_to=int(torch.nonzero(visible).flatten()[-1]) if bool(visible.any()) else 0)
+
+
 def degree_from_curve(tail: torch.Tensor, eps: float) -> float:
     ok = tail < eps
     return float(ok.float().argmax(-1).item()) if bool(ok.any()) else float(tail.shape[-1])

@@ -53,6 +53,7 @@ import torch
 from mult_common import (
     ModelCfg, TrainCfg, base_argparser, resolve_preset, resolve_device,
     train_one, probe_input_degree, probe_embedding_degree, save,
+    spectrum_fidelity,
     append_jsonl, load_jsonl, parse_shard, output_root,
 )
 
@@ -93,9 +94,12 @@ def run(cfg, args, device, out):
         noise = max(math.sqrt(max(1e-12, 1 - res["r2"])), 1e-3)
         curve = p_in["curve"]
         deg_matched = next((i for i, v in enumerate(curve) if v < noise), len(curve) - 1)
+        fid = spectrum_fidelity(p_in["curve"], m)
         rec = dict(L=L, d=d, m=m, seed=seed, n_params=mcfg.n_params(),
                    deg_matched=float(deg_matched), noise_tol=noise,
                    degmatch=float(abs(deg_matched - m) <= 0.5),
+                   fidelity=float(fid["departure"] is None), **{
+                       "fid_" + k: v for k, v in fid.items()},
                    deg_in={k: v for k, v in p_in.items() if k.startswith("deg@")},
                    deg_emb={k: v for k, v in p_em.items() if k.startswith("deg@")},
                    curve_in=p_in["curve"][:16], **res)
@@ -114,7 +118,7 @@ def run(cfg, args, device, out):
 
 # ---------------------------------------------------------------- analysis
 
-def m_star(rows, threshold, metric="r2_ood_matched"):
+def m_star(rows, threshold, metric="fidelity"):
     """Largest m, contiguous from m=1, with median metric >= threshold."""
     by_m = defaultdict(list)
     for r in rows:
@@ -144,7 +148,7 @@ def linfit(xs, ys):
     return dict(slope=round(b, 4), intercept=round(my - b * mx, 4), r2=round(r2, 4))
 
 
-def analyze(recs, threshold, metric="r2_ood_matched"):
+def analyze(recs, threshold, metric="fidelity"):
     cells = defaultdict(list)
     for r in recs:
         cells[(r["L"], r["d"])].append(r)
@@ -214,8 +218,8 @@ def analyze(recs, threshold, metric="r2_ood_matched"):
 def main():
     ap = base_argparser("Experiment 2: multiplicity x depth x width sweep")
     ap.add_argument("--analyze", default=None, help="analyse an existing json and exit")
-    ap.add_argument("--metric", default="r2_ood_matched",
-                    choices=["r2_ood_matched", "r2_ood", "r2", "degmatch"],
+    ap.add_argument("--metric", default="fidelity",
+                    choices=["fidelity", "r2_ood_matched", "r2_ood", "r2", "degmatch"],
                     help="success criterion. r2_ood (default) requires the model to "
                          "EXTRAPOLATE, which is the only way to distinguish realizing "
                          "x^m from approximating it on the training support -- exp1 S2 "
